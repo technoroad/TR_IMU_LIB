@@ -63,6 +63,8 @@
 class AdisRcvCsv
 {
 public:
+  AdisRcvCsv();
+
   enum class State {
     Ready,
     Running,
@@ -92,25 +94,24 @@ public:
   char ring_buf_[RING_BUF_SIZE];
   int ring_pointer_;
 
-  AdisRcvCsv();
-  int updateRegMode(void);
-  int updateYprMode(void);
+  int UpdateRegMode(void);
+  int UpdateYprMode(void);
 
-  int openPort(const std::string& device);
-  void closePort();
-  int readSerial();
-  int writeSerial(const std::string& cmd);
+  int OpenPort(const std::string& device);
+  void ClosePort();
+  int ReadSerial();
+  int WriteSerial(const std::string& cmd);
   
-  bool sendCmd(const std::string& cmd);
-  std::string sendAndRetCmd(const std::string& cmd);
+  bool SendCmd(const std::string& cmd);
+  std::string SendAndRetCmd(const std::string& cmd);
 
-  int calNextPointer(const int& src);
-  int calPrePointer(const int& src);
-  std::string findLastData();
-  std::string findCmdReturnRow(const std::string& cmd);
-  std::vector<std::string> split(const std::string& str, const char& delm);
-  bool setSensi(const std::string& sensi_str);
-  int makeCsum(const std::vector<int>& data);
+  int CalNextPointer(const int& src);
+  int CalPrePointer(const int& src);
+  std::string FindLastData();
+  std::string FindCmdReturnRow(const std::string& cmd);
+  std::vector<std::string> Split(const std::string& str, const char& delm);
+  bool SetSensi(const std::string& sensi_str);
+  int MakeCsum(const std::vector<int>& data);
 //  void clearBuf();
 
   State st_;
