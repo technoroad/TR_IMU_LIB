@@ -56,8 +56,14 @@
 #ifndef IMU_ERR_CANT_RCV_DATA
 #define IMU_ERR_CANT_RCV_DATA (1)
 #endif
+#ifndef IMU_ERR_COULDNOT_FIND_PACKET
+#define IMU_ERR_COULDNOT_FIND_PACKET (2)
+#endif
 #ifndef IMU_ERR_INVALID_DATA
-#define IMU_ERR_INVALID_DATA (2)
+#define IMU_ERR_INVALID_DATA (3)
+#endif
+#ifndef IMU_ERR_CHECKSUM
+#define IMU_ERR_CHECKSUM (4)
 #endif
 
 class AdisRcvCsv
