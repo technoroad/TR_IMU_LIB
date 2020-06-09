@@ -62,7 +62,7 @@ AdisRcvCsv::AdisRcvCsv()
  * @retval 0 Success
  * @retval -1 Failure
  */
-int AdisRcvCsv::openPort(const std::string& device)
+int AdisRcvCsv::OpenPort(const std::string& device)
 {
   fd_ = open(device.c_str(), O_RDWR | O_NOCTTY);
   if (fd_ < 0)
@@ -91,7 +91,7 @@ int AdisRcvCsv::openPort(const std::string& device)
 /**
  * @brief Close device
  */
-void AdisRcvCsv::closePort()
+void AdisRcvCsv::ClosePort()
 {
   if (tcsetattr(fd_, TCSANOW, &defaults_) < 0)
   {
@@ -101,7 +101,7 @@ void AdisRcvCsv::closePort()
 }
 
 
-int AdisRcvCsv::readSerial()
+int AdisRcvCsv::ReadSerial()
 {
   int rcv_cnt = -1;
   int read_buf_size = 1000;
@@ -122,7 +122,7 @@ int AdisRcvCsv::readSerial()
   return rcv_cnt;
 }
 
-int AdisRcvCsv::writeSerial(const std::string& cmd)
+int AdisRcvCsv::WriteSerial(const std::string& cmd)
 {
   int write_cnt = -1;
   write_cnt = write(fd_, cmd.c_str(), cmd.size());
@@ -134,25 +134,25 @@ int AdisRcvCsv::writeSerial(const std::string& cmd)
   return write_cnt;
 }
 
-std::string AdisRcvCsv::sendAndRetCmd(const std::string& cmd) 
+std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd) 
 {
   std::string ret_str = "";
   std::string tmp_str = "";
   std::string err_str = "";
 
-  sendCmd(cmd);
-  readSerial(); // store data to ringbuf
-//  std::string tmp_str = findLastData();
-  tmp_str = findCmdReturnRow(cmd);
+  SendCmd(cmd);
+  ReadSerial(); // store data to ringbuf
 
-  err_str = findCmdReturnRow("ERROR");
+  tmp_str = FindCmdReturnRow(cmd);
+
+  err_str = FindCmdReturnRow("ERROR");
   if (err_str != "")
   {
     memset(ring_buf_, '\0', RING_BUF_SIZE); // clear buffer
     return err_str;
   }
 
-  auto splited = split(tmp_str,  ',');
+  auto splited = Split(tmp_str,  ',');
 
   if (splited.size() >= 2) 
   {
@@ -176,14 +176,14 @@ std::string AdisRcvCsv::sendAndRetCmd(const std::string& cmd)
   return ret_str;
 }
 
-bool AdisRcvCsv::sendCmd(const std::string& cmd) 
+bool AdisRcvCsv::SendCmd(const std::string& cmd) 
 {
-  auto success = writeSerial(cmd + "\r\n");
+  auto success = WriteSerial(cmd + "\r\n");
   usleep(100000); // 100ms
   return success;
 }
 
-std::string AdisRcvCsv::findCmdReturnRow(const std::string& cmd)
+std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd)
 {
   int wp = ring_pointer_;
   std::string ret_str = "";
@@ -194,7 +194,7 @@ std::string AdisRcvCsv::findCmdReturnRow(const std::string& cmd)
     if (ring_buf_[wp] == cmd[0]) 
     {
       bool find_flg = true;
-      int wp2 = calNextPointer(wp);
+      int wp2 = CalNextPointer(wp);
       for (int j = 1; j < cmd.size(); j++) 
       {
         if (cmd[j] != ring_buf_[wp2]) 
@@ -202,14 +202,14 @@ std::string AdisRcvCsv::findCmdReturnRow(const std::string& cmd)
           find_flg = false;
           break;  // inner for
         }
-        wp2 = calNextPointer(wp2);
+        wp2 = CalNextPointer(wp2);
       }
       if (find_flg)
       {
         break;  // outer for
       }
-    }    
-    wp = calPrePointer(wp);
+    }
+    wp = CalPrePointer(wp);
   }
   if (ii == RING_BUF_SIZE) 
   {
@@ -223,7 +223,7 @@ std::string AdisRcvCsv::findCmdReturnRow(const std::string& cmd)
   for (int i = 0; i < RING_BUF_SIZE; i++) 
   {
     ret_str += ring_buf_[wp];
-    wp = calNextPointer(wp);
+    wp = CalNextPointer(wp);
     if (ring_buf_[wp] == '\r')
     {
       break;
@@ -232,7 +232,7 @@ std::string AdisRcvCsv::findCmdReturnRow(const std::string& cmd)
   return ret_str;
 }
 
-std::string AdisRcvCsv::findLastData() 
+std::string AdisRcvCsv::FindLastData() 
 {
   int wp = ring_pointer_;
   int n_cnt = 0;
@@ -242,7 +242,7 @@ std::string AdisRcvCsv::findLastData()
   for (int i = 0; i < RING_BUF_SIZE; i++) 
   {
     if (ring_buf_[wp] == '\r' 
-      && ring_buf_[calNextPointer(wp)] == '\n') 
+      && ring_buf_[CalNextPointer(wp)] == '\n') 
     {
       n_cnt++;
       if (n_cnt == 2) 
@@ -255,12 +255,12 @@ std::string AdisRcvCsv::findLastData()
         last_index = wp;
       }
     }
-    wp = calPrePointer(wp);
+    wp = CalPrePointer(wp);
   }
 
   // 最後と次の間の文字を取得する  
   // \r\nの\rを飛ばす+1
-  int index = calNextPointer(pre_last_index+1);
+  int index = CalNextPointer(pre_last_index+1);
 
   std::string ret_string;
   for (int i = 0; i < RING_BUF_SIZE; i++) 
@@ -282,22 +282,22 @@ std::string AdisRcvCsv::findLastData()
 /**
  * @brief update gyro and accel in high-precision read
  */
-int AdisRcvCsv::updateRegMode(void)
+int AdisRcvCsv::UpdateRegMode(void)
 {
-  if (readSerial() <= 0) 
+  if (ReadSerial() <= 0) 
   {
     printf("Can not read data\n");
     return IMU_ERR_CANT_RCV_DATA;
   }
 
-  std::string row = findLastData();  
+  std::string row = FindLastData();
   if (row.size() == 0) 
   {
     printf("Can not find packet\n");
     return IMU_ERR_INVALID_DATA;
   }
 
-  auto splited_data = split(row, ',');
+  auto splited_data = Split(row, ',');
   if (splited_data.size() != 7) 
   {
     printf("Invalid data length\n");
@@ -319,7 +319,7 @@ int AdisRcvCsv::updateRegMode(void)
     printf("%s\n", e.what());
   }
 
-  if (makeCsum(num_data) != csum) 
+  if (MakeCsum(num_data) != csum) 
   {
     printf("Invalid checksum!\n");
     return 1;
@@ -336,22 +336,22 @@ int AdisRcvCsv::updateRegMode(void)
 /**
  * @brief update YawPitchRoall in high-precision read
  */
-int AdisRcvCsv::updateYprMode(void)
+int AdisRcvCsv::UpdateYprMode(void)
 {
-  if (readSerial() <= 0) 
+  if (ReadSerial() <= 0) 
   {
     printf("Can not read data\n");
     return IMU_ERR_CANT_RCV_DATA;
   }
 
-  std::string row = findLastData();
+  std::string row = FindLastData();
   if (row.size() == 0) 
   {
     printf("Can not find packet\n");
     return IMU_ERR_INVALID_DATA;
   }
 
-  auto splited_data = split(row, ',');
+  auto splited_data = Split(row, ',');
   if (splited_data.size() != 3) 
   {
     printf("Invalid data length\n");
@@ -372,7 +372,7 @@ int AdisRcvCsv::updateYprMode(void)
   return IMU_OK;
 }
 
-int AdisRcvCsv::makeCsum(const std::vector<int>& array) 
+int AdisRcvCsv::MakeCsum(const std::vector<int>& array) 
 {
   int sum = 0;
   for (int i = 0; i < array.size(); i++)
@@ -385,17 +385,17 @@ int AdisRcvCsv::makeCsum(const std::vector<int>& array)
   return (sum & 0xff); 
 }
 
-int AdisRcvCsv::calNextPointer(const int& src) 
+int AdisRcvCsv::CalNextPointer(const int& src) 
 {
   return ((src+1) % RING_BUF_SIZE);
 }
 
-int AdisRcvCsv::calPrePointer(const int& src) 
+int AdisRcvCsv::CalPrePointer(const int& src) 
 {
   return (src+RING_BUF_SIZE-1) % RING_BUF_SIZE;
 }
 
-std::vector<std::string> AdisRcvCsv::split(const std::string& str, const char& delm) 
+std::vector<std::string> AdisRcvCsv::Split(const std::string& str, const char& delm) 
 {
   std::vector<std::string> ret;
   std::stringstream stream(str);
@@ -408,9 +408,9 @@ std::vector<std::string> AdisRcvCsv::split(const std::string& str, const char& d
   return ret;
 }
 
-bool AdisRcvCsv::setSensi(const std::string& sensi_str) 
+bool AdisRcvCsv::SetSensi(const std::string& sensi_str) 
 {
-  auto splited = split(sensi_str, ',');
+  auto splited = Split(sensi_str, ',');
   if (splited.size() != 2) 
   {
     return false;
