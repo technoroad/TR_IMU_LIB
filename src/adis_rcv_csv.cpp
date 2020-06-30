@@ -134,13 +134,13 @@ int AdisRcvCsv::WriteSerial(const std::string& cmd)
   return write_cnt;
 }
 
-std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd) 
+std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string& args) 
 {
   std::string ret_str = "";
   std::string tmp_str = "";
   std::string err_str = "";
 
-  SendCmd(cmd);
+  SendCmd(cmd + args);
   ReadSerial(); // store data to ringbuf
 
   tmp_str = FindCmdReturnRow(cmd);

@@ -109,7 +109,7 @@ public:
   int WriteSerial(const std::string& cmd);
   
   bool SendCmd(const std::string& cmd);
-  std::string SendAndRetCmd(const std::string& cmd);
+  std::string SendAndRetCmd(const std::string& cmd, const std::string& args = "");
 
   int CalNextPointer(const int& src);
   int CalPrePointer(const int& src);
