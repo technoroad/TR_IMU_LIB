@@ -66,28 +66,47 @@
 #define IMU_ERR_CHECKSUM (4)
 #endif
 
-class AdisRcvCsv
-{
+class AdisRcvCsv {
 public:
-  AdisRcvCsv();
-
   enum class State {
-    Ready,
-    Running,
-    Unknown
+    READY,
+    RUNNING,
+    INITIAL
   };
 
   enum class Mode {
-    YPR,
-    Register,
-    Unknown
+    ATTIUDE,
+    REGISTER,
+    INITIAL
   };
+
+  AdisRcvCsv();
+
+  int UpdateRegMode();
+  int UpdateYprMode();
+
+  bool Prepare();
+  bool Open(const std::string& device);
+
+  void Close();
+  void SetMode(const Mode& m);
+  void SetState(const State& m);
+  void Stop();
+  void GetYPR(double ret[]);
+  void GetAcc(double ret[]);
+  void GetGyro(double ret[]);
+  
+  std::string GetProductIdStr();
+  Mode GetMode();
+  State GetState();
+
+private:
+  State st_;
+  Mode md_;
 
   //! File descripter for USB-ISS
   int fd_;
-  //! Saved terminal config
-  struct termios defaults_;
-
+  bool SetSensi(const std::string& sensi_str);
   // Gyro sensor(x, y, z)
   double gyro_[3];
   // Acceleration sensor(x, y, z)
@@ -95,31 +114,36 @@ public:
   // estimated imu pose(Yaw, Pitch, Roll)[deg]
   double ypr_[3];
 
+  //! Saved terminal config
+  struct termios defaults_;
+
   double gyro_sensi_;
   double acc_sensi_;
   char ring_buf_[RING_BUF_SIZE];
   int ring_pointer_;
 
-  int UpdateRegMode(void);
-  int UpdateYprMode(void);
+  std::string format_str_;
+  std::string prod_id_;
 
-  int OpenPort(const std::string& device);
-  void ClosePort();
   int ReadSerial();
   int WriteSerial(const std::string& cmd);
-  
-  bool SendCmd(const std::string& cmd);
-  std::string SendAndRetCmd(const std::string& cmd, const std::string& args = "");
-
   int CalNextPointer(const int& src);
   int CalPrePointer(const int& src);
+  int MakeCsum(const std::vector<int>& data);
+
+  void PrintFirmVersion();
+  void GetProductId();
+
+  bool IsOpened();
+  bool Prepared();
+  bool SendCmd(const std::string& cmd);
+  bool SetFormat();
+  bool CheckFormat();
+  bool CheckStatus();
+  bool CheckSensitivity();
+
+  std::string SendAndRetCmd(const std::string& cmd, const std::string& args, const bool& is_print);
   std::string FindLastData();
   std::string FindCmdReturnRow(const std::string& cmd);
   std::vector<std::string> Split(const std::string& str, const char& delm);
-  bool SetSensi(const std::string& sensi_str);
-  int MakeCsum(const std::vector<int>& data);
-//  void clearBuf();
-
-  State st_;
-  Mode md_;
 };
