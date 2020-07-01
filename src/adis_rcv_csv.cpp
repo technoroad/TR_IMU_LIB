@@ -69,14 +69,13 @@ void AdisRcvCsv::Close() {
 
 int AdisRcvCsv::ReadSerial() {
   int rcv_cnt = -1;
-  int read_buf_size = 1000;
+  const int read_buf_size = 1000;
   char buf[read_buf_size];
   rcv_cnt = read(fd_, buf, read_buf_size);
 
   // write ring buffer
-  for (int i = 0; i < rcv_cnt; i++) 
-  {
-    ring_pointer_ = ++ring_pointer_ % RING_BUF_SIZE;
+  for (int i = 0; i < rcv_cnt; i++) {
+    ring_pointer_ = (ring_pointer_+1) % RING_BUF_SIZE;
     ring_buf_[ring_pointer_] = buf[i];
   }
  #if 0
@@ -118,7 +117,7 @@ std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string&
   if (splited.size() >= 2) {
     // is include cmd string?
     if (splited[0].find(cmd) != std::string::npos) {
-      for (int i = 1; i < splited.size(); i++) {
+      for (size_t i = 1; i < splited.size(); i++) {
         ret_str += splited[i] + ",";
       }
       ret_str.erase(ret_str.end()-1); // erase last comma
@@ -151,7 +150,7 @@ std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd) {
     if (ring_buf_[wp] == cmd[0]) {
       bool find_flg = true;
       int wp2 = CalNextPointer(wp);
-      for (int j = 1; j < cmd.size(); j++) {
+      for (size_t j = 1; j < cmd.size(); j++) {
         if (cmd[j] != ring_buf_[wp2]) {
           find_flg = false;
           break;  // inner for
@@ -213,7 +212,8 @@ std::string AdisRcvCsv::FindLastData() {
     } else {
       ret_string += ring_buf_[index];
     }
-    index = ++index % RING_BUF_SIZE;
+    index = (index+1) % RING_BUF_SIZE;
+//    index = ++index % RING_BUF_SIZE;
   }
   return ret_string;
 }
@@ -243,7 +243,7 @@ int AdisRcvCsv::UpdateRegMode() {
   std::vector<int> num_data(6, 0);
   int csum = 300;
   try {
-    for (int i = 0; i < num_data.size(); i++) {
+    for (size_t i = 0; i < num_data.size(); i++) {
       num_data[i] = (int)std::stol(splited_data[i], nullptr, 16);
     }
     csum = (int)std::stol(splited_data.back(), nullptr, 16);
@@ -296,7 +296,7 @@ int AdisRcvCsv::UpdateYprMode() {
 
 int AdisRcvCsv::MakeCsum(const std::vector<int>& array) {
   int sum = 0;
-  for (int i = 0; i < array.size(); i++) {
+  for (size_t i = 0; i < array.size(); i++) {
     sum += (array[i]>>24) & 0xff;
     sum += (array[i]>>16) & 0xff;
     sum += (array[i]>>8)  & 0xff;
