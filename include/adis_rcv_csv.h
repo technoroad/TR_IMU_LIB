@@ -80,6 +80,12 @@ public:
     INITIAL
   };
 
+  enum class Product {
+    ADIS16470,
+    ADIS16500,
+    ADIS16505_2
+  };
+
   AdisRcvCsv();
 
   int UpdateRegMode();
@@ -103,6 +109,7 @@ public:
 private:
   State st_;
   Mode md_;
+  Product pd_;
 
   //! File descripter for USB-ISS
   int fd_;

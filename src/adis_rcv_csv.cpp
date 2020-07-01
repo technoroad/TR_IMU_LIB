@@ -457,6 +457,16 @@ bool AdisRcvCsv::CheckFormat() {
 
 void AdisRcvCsv::GetProductId() {
   prod_id_ = SendAndRetCmd("GET_PROD_ID");
+
+  if (prod_id_ == "ADIS16470") {
+    pd_ = Product::ADIS16470;
+  } else if (prod_id_ == "ADIS16500") {
+    pd_ = Product::ADIS16500;
+  } else if (prod_id_ == "ADIS16505-2") {
+    pd_ = Product::ADIS16505_2;
+  } else {
+    printf("Unknown product id\n");
+  }
 }
 
 std::string AdisRcvCsv::GetProductIdStr() {
@@ -516,6 +526,13 @@ void AdisRcvCsv::GetAcc(double ret[]) {
   ret[0] = accl_[0];
   ret[1] = accl_[1];
   ret[2] = accl_[2];
+  
+  // convert unit m/s^2 to g
+  if (pd_ == Product::ADIS16500 || pd_ == Product::ADIS16505_2) {
+    ret[0] /= GRAVITY;
+    ret[1] /= GRAVITY;
+    ret[2] /= GRAVITY;
+  }
 }
 
 void AdisRcvCsv::GetGyro(double ret[]) {
