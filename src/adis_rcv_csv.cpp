@@ -358,7 +358,7 @@ AdisRcvCsv::State AdisRcvCsv::GetState() {
 }
 
 bool AdisRcvCsv::Prepare() {
-  CheckStatus();
+  if (!CheckStatus()) return false;
 
   PrintFirmVersion();
   GetProductId();
@@ -474,16 +474,17 @@ void AdisRcvCsv::PrintFirmVersion() {
 
 bool AdisRcvCsv::CheckStatus() {
   auto ret_str = SendAndRetCmd("GET_STATUS"); 
-  if (ret_str == "Running") {
-    PRINT_WARN("Imu state is Running. Send stop command.\n");
+  if (ret_str == "") {
+    PRINT_WARN("The command did not come back.\n");
+    return false;
+
+  } else if (ret_str != "Ready") {
+    PRINT_WARN("Imu state is not Ready. Send stop command.\n");
     ret_str = SendAndRetCmd("stop", ""); 
     if (ret_str != "stop") {
       PRINT_ERR("Transmission of stop command failed.");
       return false;
     }
-  } else if (ret_str != "Ready") {
-    PRINT_WARN("Invalid imu state.\n");
-    return false;
   }
   return true;
 }
@@ -533,3 +534,4 @@ void AdisRcvCsv::GetGyro(double ret[]) {
   ret[1] = gyro_[1];
   ret[2] = gyro_[2];
 }
+
