@@ -43,6 +43,7 @@
 #include <sstream>
 
 #include "adis_rcv_csv.h"
+#include "c_helper.h"
 
   
 /**
@@ -96,7 +97,7 @@ int AdisRcvCsv::WriteSerial(const std::string& cmd) {
   return write_cnt;
 }
 
-std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string& args = "", const bool& is_print = true) {
+std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string& args, const bool& is_print) {
   std::string ret_str = "";
   std::string tmp_str = "";
   std::string err_str = "";
@@ -166,7 +167,7 @@ std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd) {
 
   if (ii == RING_BUF_SIZE) {
     if (cmd != "ERROR") {
-      printf("Can not find cmd from ring buffer\n");
+      PRINT_WARN("Can not find cmd from ring buffer\n");
     }
     return ret_str;
   }
@@ -213,7 +214,6 @@ std::string AdisRcvCsv::FindLastData() {
       ret_string += ring_buf_[index];
     }
     index = (index+1) % RING_BUF_SIZE;
-//    index = ++index % RING_BUF_SIZE;
   }
   return ret_string;
 }
@@ -248,17 +248,17 @@ int AdisRcvCsv::UpdateRegMode() {
     }
     csum = (int)std::stol(splited_data.back(), nullptr, 16);
   } catch (std::invalid_argument e) {
-    printf("%s\n", e.what());
+    PRINT_ERR(e.what());
   }
 
   if (MakeCsum(num_data) != csum) {
-    printf("Invalid checksum!\n");
+    PRINT_WARN("Invalid checksum!\n");
     return 1;
   }
 
   for (int i = 0; i < 3; i++) {
     gyro_[i] = (double)num_data[i]   * DEG2RAD / gyro_sensi_;
-    accl_[i] = (double)num_data[i+3] * GRAVITY / acc_sensi_;
+    accl_[i] = (double)num_data[i+3] * GRAVITY / acc_sensi_;  // convert unit g to m/s^2
   } 
   return IMU_OK;
 }
@@ -289,7 +289,7 @@ int AdisRcvCsv::UpdateYprMode() {
       ypr_[i] = std::stof(splited_data[i]);
     }
   } catch (std::invalid_argument e) {
-    printf("%s\n", e.what());
+    PRINT_ERR(e.what());
   }
   return IMU_OK;
 }
@@ -358,15 +358,13 @@ AdisRcvCsv::State AdisRcvCsv::GetState() {
 }
 
 bool AdisRcvCsv::Prepare() {
+  CheckStatus();
+
   PrintFirmVersion();
   GetProductId();
 
   if (!SetFormat()) return false;
 
-  // check imu state
-  if (!CheckStatus()) return false;
-
-  
   SetState(State::READY);
 
   // check data format
@@ -381,12 +379,11 @@ bool AdisRcvCsv::Prepare() {
 
   auto ret_str = SendAndRetCmd("start", /* args */"", /* is_print */false);
   if (ret_str != "start") {
-    printf("Send start cmd. But imu was not started.\n");
-//    ROS_WARN("Send start cmd. But imu was not started.");
+    PRINT_ERR("Send start cmd. But imu was not started.\n");
     return false;
   }
 
-  printf("Start imu!\n");
+  PRINT_OK("Start imu!\n");
   SetState(AdisRcvCsv::State::RUNNING);
 
   return true;
@@ -437,8 +434,7 @@ bool AdisRcvCsv::SetFormat() {
   auto ret_str = SendAndRetCmd(cmd, args);
     
   if (ret_str != format_str_) {
-    //ROS_ERROR("SET_FORMAT is failed.");
-    printf("SET_FORMAT is failed.\n");
+    PRINT_ERR("SET_FORMAT is failed.\n");
     return false;
   }
   return true;
@@ -448,8 +444,7 @@ bool AdisRcvCsv::CheckFormat() {
   auto ret_str = SendAndRetCmd("GET_FORMAT"); 
 
   if (ret_str != format_str_) {
-//    ROS_ERROR("Ivalid format.");
-    printf("Ivalid format.\n");
+    PRINT_ERR("Ivalid format.\n");
     return false;
   }
   return true;
@@ -465,7 +460,7 @@ void AdisRcvCsv::GetProductId() {
   } else if (prod_id_ == "ADIS16505-2") {
     pd_ = Product::ADIS16505_2;
   } else {
-    printf("Unknown product id\n");
+    PRINT_ERR("Unknown product id\n");
   }
 }
 
@@ -480,14 +475,14 @@ void AdisRcvCsv::PrintFirmVersion() {
 bool AdisRcvCsv::CheckStatus() {
   auto ret_str = SendAndRetCmd("GET_STATUS"); 
   if (ret_str == "Running") {
-    printf("Imu state is Running. Send stop command.\n");
-//    ROS_WARN("Imu state is Running. Send stop command.");
-    SendCmd("stop");
-    return false;
-
+    PRINT_WARN("Imu state is Running. Send stop command.\n");
+    ret_str = SendAndRetCmd("stop", ""); 
+    if (ret_str != "stop") {
+      PRINT_ERR("Transmission of stop command failed.");
+      return false;
+    }
   } else if (ret_str != "Ready") {
-    printf("Invalid imu state.\n");
-//    ROS_WARN("Invalid imu state.");
+    PRINT_WARN("Invalid imu state.\n");
     return false;
   }
   return true;
@@ -497,14 +492,12 @@ bool AdisRcvCsv::CheckSensitivity() {
   std::string ret_str = "";
   ret_str = SendAndRetCmd("GET_SENSI"); 
   if (ret_str == "") {
-    printf("Could not get sensitivities!\n");
-//    ROS_WARN("Could not get sensitivities!");
+    PRINT_ERR("Could not get sensitivities!\n");
     return false;
 
   } else {
     if (!SetSensi(ret_str)) {
-      printf("Insufficient number of sensitivities.\n");
-//    ROS_WARN("Insufficient number of sensitivities.");
+      PRINT_ERR("Insufficient number of sensitivities.\n");
     return false;
     }
   }
@@ -527,7 +520,7 @@ void AdisRcvCsv::GetAcc(double ret[]) {
   ret[1] = accl_[1];
   ret[2] = accl_[2];
   
-  // convert unit m/s^2 to g
+  // convert unit gm/s^2 to m/s^2
   if (pd_ == Product::ADIS16500 || pd_ == Product::ADIS16505_2) {
     ret[0] /= GRAVITY;
     ret[1] /= GRAVITY;

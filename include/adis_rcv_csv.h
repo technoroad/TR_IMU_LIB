@@ -29,6 +29,7 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 // OF THE POSSIBILITY OF SUCH DAMAGE.
+#pragma once
 
 #include <termios.h>
 #include <string>
@@ -102,9 +103,10 @@ public:
   void GetAcc(double ret[]);
   void GetGyro(double ret[]);
   
-  std::string GetProductIdStr();
   Mode GetMode();
   State GetState();
+  std::string GetProductIdStr();
+  std::string SendAndRetCmd(const std::string& cmd, const std::string& args = "", const bool& is_print = true);
 
 private:
   State st_;
@@ -149,7 +151,6 @@ private:
   bool CheckStatus();
   bool CheckSensitivity();
 
-  std::string SendAndRetCmd(const std::string& cmd, const std::string& args, const bool& is_print);
   std::string FindLastData();
   std::string FindCmdReturnRow(const std::string& cmd);
   std::vector<std::string> Split(const std::string& str, const char& delm);
