@@ -79,6 +79,7 @@ void AdisRcvCsv::ClearRingBuf(){
   }
   ring_pointer_ = RING_BUF_SIZE;
 }
+
 int AdisRcvCsv::ReadSerial() {
   int rcv_cnt = -1;
   const int read_buf_size = 1000;
@@ -112,22 +113,22 @@ std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string&
   std::string ret_str = "";
   std::string tmp_str = "";
   std::string err_str = "";
-  if(cmd == "help"){
+  if (cmd == "help") {
     Stop();
     ReadSerial();
     ClearRingBuf();
     SendCmd(cmd + args);
     
     std::string item_str = "";
-    do{
+    do {
       ReadSerial();
       item_str = GetHelpCmdReturn();
       tmp_str += item_str;
-    }while(item_str != "");
+    } while (item_str != "");
     
     printf("%s",tmp_str.c_str());
     return "The reply is printed to the main terminal.If it is not output,please check the log level of launch file.";
-  }else{
+  } else {
     SendCmd(cmd + args);
     ReadSerial(); // store data to ringbuf
 
@@ -139,9 +140,9 @@ std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string&
       return err_str;
     }
 
-    if(cmd == "error"){
+    if (cmd == "error") {
       return tmp_str;
-    }else if(tmp_str == "start"){
+    } else if (tmp_str == "start") {
       SetState(State::RUNNING);
     }
   }
@@ -175,7 +176,7 @@ bool AdisRcvCsv::SendCmd(const std::string& cmd) {
   return success;
 }
 
-std::string AdisRcvCsv::GetHelpCmdReturn(){
+std::string AdisRcvCsv::GetHelpCmdReturn() {
   int wp = ring_pointer_;
   std::string ret_str = ""; 
   int ii = 0;
@@ -186,7 +187,7 @@ std::string AdisRcvCsv::GetHelpCmdReturn(){
     wp = CalPrePointer(wp);
   }
 
-  for(int i = 0; i < RING_BUF_SIZE; i++){
+  for (int i = 0; i < RING_BUF_SIZE; i++) {
     wp = CalNextPointer(wp);
     if (ring_buf_[wp] == '\0') {
       break;
@@ -196,6 +197,7 @@ std::string AdisRcvCsv::GetHelpCmdReturn(){
   }
   return ret_str;
 }
+
 std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd) {
   int wp = ring_pointer_;
   std::string ret_str = "";
