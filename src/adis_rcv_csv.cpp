@@ -303,7 +303,7 @@ int AdisRcvCsv::UpdateRegMode() {
       num_data[i] = (int)std::stol(splited_data[i], nullptr, 16);
     }
     csum = (int)std::stol(splited_data.back(), nullptr, 16);
-  } catch (std::invalid_argument e) {
+  } catch (const std::invalid_argument& e) {
     PRINT_ERR(e.what());
   }
 
@@ -344,7 +344,7 @@ int AdisRcvCsv::UpdateYprMode() {
     for (int i = 0; i < 3; i++) {
       ypr_[i] = std::stof(splited_data[i]);
     }
-  } catch (std::invalid_argument e) {
+  } catch (const std::invalid_argument& e) {
     PRINT_ERR(e.what());
   }
   return IMU_OK;
