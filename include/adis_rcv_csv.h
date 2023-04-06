@@ -142,6 +142,7 @@ private:
 
   void PrintFirmVersion();
   void GetProductId();
+  void ClearRingBuf();
 
   bool IsOpened();
   bool Prepared();
@@ -152,6 +153,7 @@ private:
   bool CheckSensitivity();
 
   std::string FindLastData();
+  std::string GetHelpCmdReturn();
   std::string FindCmdReturnRow(const std::string& cmd);
   std::vector<std::string> Split(const std::string& str, const char& delm);
 };

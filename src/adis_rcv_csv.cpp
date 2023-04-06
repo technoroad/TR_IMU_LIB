@@ -68,6 +68,18 @@ void AdisRcvCsv::Close() {
   close(fd_);
 }
 
+void AdisRcvCsv::ClearRingBuf(){
+  const int read_buf_size = RING_BUF_SIZE;
+  char buf[read_buf_size];
+  int rcv_cnt = read(fd_, buf, read_buf_size);
+  
+  // clear ring buffer
+  for (int i = 0; i < RING_BUF_SIZE; i++) {
+    ring_buf_[i] = '\0';
+  }
+  ring_pointer_ = RING_BUF_SIZE;
+}
+
 int AdisRcvCsv::ReadSerial() {
   int rcv_cnt = -1;
   const int read_buf_size = 1000;
@@ -101,16 +113,38 @@ std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string&
   std::string ret_str = "";
   std::string tmp_str = "";
   std::string err_str = "";
+  if (cmd == "help") {
+    Stop();
+    ReadSerial();
+    ClearRingBuf();
+    SendCmd(cmd + args);
+    
+    std::string item_str = "";
+    do {
+      ReadSerial();
+      item_str = GetHelpCmdReturn();
+      tmp_str += item_str;
+    } while (item_str != "");
+    
+    printf("%s",tmp_str.c_str());
+    return "The reply is printed to the main terminal.If it is not output,please check the log level of launch file.";
+  } else {
+    SendCmd(cmd + args);
+    ReadSerial(); // store data to ringbuf
 
-  SendCmd(cmd + args);
-  ReadSerial(); // store data to ringbuf
+    tmp_str = FindCmdReturnRow(cmd);
 
-  tmp_str = FindCmdReturnRow(cmd);
+    err_str = FindCmdReturnRow("ERROR");
+    if (err_str != "") {
+      memset(ring_buf_, '\0', RING_BUF_SIZE); // clear buffer
+      return err_str;
+    }
 
-  err_str = FindCmdReturnRow("ERROR");
-  if (err_str != "") {
-    memset(ring_buf_, '\0', RING_BUF_SIZE); // clear buffer
-    return err_str;
+    if (cmd == "error") {
+      return tmp_str;
+    } else if (tmp_str == "start") {
+      SetState(State::RUNNING);
+    }
   }
 
   auto splited = Split(tmp_str,  ',');
@@ -140,6 +174,28 @@ bool AdisRcvCsv::SendCmd(const std::string& cmd) {
   auto success = WriteSerial(cmd + "\r\n");
   usleep(100000); // 100ms
   return success;
+}
+
+std::string AdisRcvCsv::GetHelpCmdReturn() {
+  int wp = ring_pointer_;
+  std::string ret_str = ""; 
+  int ii = 0;
+  for (; ii < RING_BUF_SIZE; ii++) {
+    if (ring_buf_[wp] == '\0') {
+      break;
+    }
+    wp = CalPrePointer(wp);
+  }
+
+  for (int i = 0; i < RING_BUF_SIZE; i++) {
+    wp = CalNextPointer(wp);
+    if (ring_buf_[wp] == '\0') {
+      break;
+    }
+    ret_str += ring_buf_[wp];
+    ring_buf_[wp] = '\0';
+  }
+  return ret_str;
 }
 
 std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd) {
@@ -174,8 +230,10 @@ std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd) {
 
   for (int i = 0; i < RING_BUF_SIZE; i++) {
     ret_str += ring_buf_[wp];
+    ring_buf_[wp] = '\0';
     wp = CalNextPointer(wp);
     if (ring_buf_[wp] == '\r') {
+      ring_buf_[wp] = '\0';
       break;
     }
   }
