@@ -1,0 +1,51 @@
+name: build and test
+
+on:
+  push:
+    branches: [ dev, test ]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && 
+          sudo apt-get install -y cmake
+
+      - name: Build tests
+        id: build_test
+        run: |
+          mkdir build &&
+          cd build &&
+          cmake .. -DRUN_TEST=1 &&
+          make
+        continue-on-error: true
+
+      - name: build_test command success
+        if: steps.build_test.outcome == 'success'
+        run: echo "result - success"
+
+      - name: build_test command failure
+        if: steps.build_test.outcome == 'failure'
+        run: echo "result - failure" && exit 1
+
+      - name: Run tests
+        id: run_test
+        run: |
+          cd build &&
+          ctest --verbose
+        continue-on-error: true
+
+      - name: run_test command success
+        if: steps.run_test.outcome == 'success'
+        run: echo "result - success"
+
+      - name: run_test command failure
+        if: steps.run_test.outcome == 'failure'
+        run: echo "result - failure" && exit 1
