@@ -1,5 +1,5 @@
 project(adis_rcv_csv)
-cmake_minimum_required(VERSION 2.8.13)
+cmake_minimum_required(VERSION 3.5)
 
 include_directories(include)
 
