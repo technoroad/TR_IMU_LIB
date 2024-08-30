@@ -32,6 +32,7 @@
 #pragma once
 
 #include <termios.h>
+
 #include <string>
 #include <vector>
 
@@ -67,24 +68,32 @@
 #define IMU_ERR_CHECKSUM (4)
 #endif
 
-class AdisRcvCsv {
+class AdisRcvCsv
+{
 public:
-  enum class State {
+  enum class State
+  {
     READY,
     RUNNING,
     INITIAL
   };
 
-  enum class Mode {
+  enum class Mode
+  {
     ATTIUDE,
     REGISTER,
     INITIAL
   };
 
-  enum class Product {
+  enum class Product
+  {
     ADIS16470,
     ADIS16500,
-    ADIS16505_2
+    ADIS16505_2,
+    ADIS16475_2,
+    ADIS16477_2,
+    ADIS16495_2,
+    UNKNOWN
   };
 
   AdisRcvCsv();
@@ -102,11 +111,12 @@ public:
   void GetYPR(double ret[]);
   void GetAcc(double ret[]);
   void GetGyro(double ret[]);
-  
+
   Mode GetMode();
   State GetState();
   std::string GetProductIdStr();
-  std::string SendAndRetCmd(const std::string& cmd, const std::string& args = "", const bool& is_print = true);
+  std::string SendAndRetCmd(const std::string& cmd, const std::string& args = "",
+                            const bool& is_print = true);
 
 private:
   State st_;
@@ -139,9 +149,11 @@ private:
   int CalNextPointer(const int& src);
   int CalPrePointer(const int& src);
   int MakeCsum(const std::vector<int>& data);
+  void CheckProductId(const std::string& id);
 
   void PrintFirmVersion();
   void GetProductId();
+
   void ClearRingBuf();
 
   bool IsOpened();
@@ -156,4 +168,9 @@ private:
   std::string GetHelpCmdReturn();
   std::string FindCmdReturnRow(const std::string& cmd);
   std::vector<std::string> Split(const std::string& str, const char& delm);
+
+#if defined(UTEST)
+public:
+  friend class AdisRcvCsvTest;
+#endif
 };

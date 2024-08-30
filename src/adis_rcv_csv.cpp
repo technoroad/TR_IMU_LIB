@@ -30,26 +30,28 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 // OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "adis_rcv_csv.h"
+
+#include <fcntl.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <stdint.h>
-#include <stdexcept>
-#include <sstream>
 
-#include "adis_rcv_csv.h"
+#include <sstream>
+#include <stdexcept>
+
 #include "c_helper.h"
 
-  
 /**
  * @brief Constructor
  */
-AdisRcvCsv::AdisRcvCsv() {
+AdisRcvCsv::AdisRcvCsv()
+{
   fd_ = -1;
   ring_pointer_ = 0;
   st_ = State::INITIAL;
@@ -61,18 +63,20 @@ AdisRcvCsv::AdisRcvCsv() {
 /**
  * @brief Close device
  */
-void AdisRcvCsv::Close() {
+void AdisRcvCsv::Close()
+{
   if (tcsetattr(fd_, TCSANOW, &defaults_) < 0) {
     perror("closePort");
   }
   close(fd_);
 }
 
-void AdisRcvCsv::ClearRingBuf(){
+void AdisRcvCsv::ClearRingBuf()
+{
   const int read_buf_size = RING_BUF_SIZE;
   char buf[read_buf_size];
-  int rcv_cnt = read(fd_, buf, read_buf_size);
-  
+  read(fd_, buf, read_buf_size);
+
   // clear ring buffer
   for (int i = 0; i < RING_BUF_SIZE; i++) {
     ring_buf_[i] = '\0';
@@ -80,7 +84,8 @@ void AdisRcvCsv::ClearRingBuf(){
   ring_pointer_ = RING_BUF_SIZE;
 }
 
-int AdisRcvCsv::ReadSerial() {
+int AdisRcvCsv::ReadSerial()
+{
   int rcv_cnt = -1;
   const int read_buf_size = 1000;
   char buf[read_buf_size];
@@ -88,18 +93,19 @@ int AdisRcvCsv::ReadSerial() {
 
   // write ring buffer
   for (int i = 0; i < rcv_cnt; i++) {
-    ring_pointer_ = (ring_pointer_+1) % RING_BUF_SIZE;
+    ring_pointer_ = (ring_pointer_ + 1) % RING_BUF_SIZE;
     ring_buf_[ring_pointer_] = buf[i];
   }
- #if 0
+#if 0
 //  printf("rcv_cnt: %d\n", rcv_cnt);
   ring_buf_[RING_BUF_SIZE-1] = '\0';
   printf("%s\n\n", ring_buf_);
- #endif
+#endif
   return rcv_cnt;
 }
 
-int AdisRcvCsv::WriteSerial(const std::string& cmd) {
+int AdisRcvCsv::WriteSerial(const std::string& cmd)
+{
   int write_cnt = -1;
   write_cnt = write(fd_, cmd.c_str(), cmd.size());
 
@@ -109,7 +115,9 @@ int AdisRcvCsv::WriteSerial(const std::string& cmd) {
   return write_cnt;
 }
 
-std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string& args, const bool& is_print) {
+std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string& args,
+                                      const bool& is_print)
+{
   std::string ret_str = "";
   std::string tmp_str = "";
   std::string err_str = "";
@@ -118,25 +126,26 @@ std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string&
     ReadSerial();
     ClearRingBuf();
     SendCmd(cmd + args);
-    
+
     std::string item_str = "";
     do {
       ReadSerial();
       item_str = GetHelpCmdReturn();
       tmp_str += item_str;
     } while (item_str != "");
-    
-    printf("%s",tmp_str.c_str());
-    return "The reply is printed to the main terminal.If it is not output,please check the log level of launch file.";
+
+    printf("%s", tmp_str.c_str());
+    return "The reply is printed to the main terminal.If it is not output,please check the log "
+           "level of launch file.";
   } else {
     SendCmd(cmd + args);
-    ReadSerial(); // store data to ringbuf
+    ReadSerial();  // store data to ringbuf
 
     tmp_str = FindCmdReturnRow(cmd);
 
     err_str = FindCmdReturnRow("ERROR");
     if (err_str != "") {
-      memset(ring_buf_, '\0', RING_BUF_SIZE); // clear buffer
+      memset(ring_buf_, '\0', RING_BUF_SIZE);  // clear buffer
       return err_str;
     }
 
@@ -147,7 +156,7 @@ std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string&
     }
   }
 
-  auto splited = Split(tmp_str,  ',');
+  auto splited = Split(tmp_str, ',');
 
   if (splited.size() >= 2) {
     // is include cmd string?
@@ -155,7 +164,7 @@ std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string&
       for (size_t i = 1; i < splited.size(); i++) {
         ret_str += splited[i] + ",";
       }
-      ret_str.erase(ret_str.end()-1); // erase last comma
+      ret_str.erase(ret_str.end() - 1);  // erase last comma
     }
   } else if (splited.size() == 1) {
     if (splited[0].find(cmd) != std::string::npos) {
@@ -163,22 +172,24 @@ std::string AdisRcvCsv::SendAndRetCmd(const std::string& cmd, const std::string&
     }
   }
 
-  if (is_print)  {
+  if (is_print) {
     printf("%s = %s\n", cmd.c_str(), ret_str.c_str());
   }
 
   return ret_str;
 }
 
-bool AdisRcvCsv::SendCmd(const std::string& cmd) {
+bool AdisRcvCsv::SendCmd(const std::string& cmd)
+{
   auto success = WriteSerial(cmd + "\r\n");
-  usleep(100000); // 100ms
+  usleep(100000);  // 100ms
   return success;
 }
 
-std::string AdisRcvCsv::GetHelpCmdReturn() {
+std::string AdisRcvCsv::GetHelpCmdReturn()
+{
   int wp = ring_pointer_;
-  std::string ret_str = ""; 
+  std::string ret_str = "";
   int ii = 0;
   for (; ii < RING_BUF_SIZE; ii++) {
     if (ring_buf_[wp] == '\0') {
@@ -198,7 +209,8 @@ std::string AdisRcvCsv::GetHelpCmdReturn() {
   return ret_str;
 }
 
-std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd) {
+std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd)
+{
   int wp = ring_pointer_;
   std::string ret_str = "";
 
@@ -240,15 +252,15 @@ std::string AdisRcvCsv::FindCmdReturnRow(const std::string& cmd) {
   return ret_str;
 }
 
-std::string AdisRcvCsv::FindLastData() {
+std::string AdisRcvCsv::FindLastData()
+{
   int wp = ring_pointer_;
   int n_cnt = 0;
   int last_index = -1;
   int pre_last_index = -1;
   // 最後から探査して\r\nを2つ探す
   for (int i = 0; i < RING_BUF_SIZE; i++) {
-    if (ring_buf_[wp] == '\r' 
-      && ring_buf_[CalNextPointer(wp)] == '\n') {
+    if (ring_buf_[wp] == '\r' && ring_buf_[CalNextPointer(wp)] == '\n') {
       n_cnt++;
       if (n_cnt == 2) {
         pre_last_index = wp;
@@ -260,9 +272,9 @@ std::string AdisRcvCsv::FindLastData() {
     wp = CalPrePointer(wp);
   }
 
-  // 最後と次の間の文字を取得する  
+  // 最後と次の間の文字を取得する
   // \r\nの\rを飛ばす+1
-  int index = CalNextPointer(pre_last_index+1);
+  int index = CalNextPointer(pre_last_index + 1);
 
   std::string ret_string;
   for (int i = 0; i < RING_BUF_SIZE; i++) {
@@ -271,16 +283,16 @@ std::string AdisRcvCsv::FindLastData() {
     } else {
       ret_string += ring_buf_[index];
     }
-    index = (index+1) % RING_BUF_SIZE;
+    index = (index + 1) % RING_BUF_SIZE;
   }
   return ret_string;
 }
 
-
 /**
  * @brief update gyro and accel in high-precision read
  */
-int AdisRcvCsv::UpdateRegMode() {
+int AdisRcvCsv::UpdateRegMode()
+{
   if (ReadSerial() <= 0) {
     printf("Can not read data\n");
     return IMU_ERR_CANT_RCV_DATA;
@@ -315,16 +327,17 @@ int AdisRcvCsv::UpdateRegMode() {
   }
 
   for (int i = 0; i < 3; i++) {
-    gyro_[i] = (double)num_data[i]   * DEG2RAD / gyro_sensi_;
-    accl_[i] = (double)num_data[i+3] * GRAVITY / acc_sensi_;  // convert unit g to m/s^2
-  } 
+    gyro_[i] = (double)num_data[i] * DEG2RAD / gyro_sensi_;
+    accl_[i] = (double)num_data[i + 3] * GRAVITY / acc_sensi_;  // convert unit g to m/s^2
+  }
   return IMU_OK;
 }
 
 /**
  * @brief update YawPitchRoall in high-precision read
  */
-int AdisRcvCsv::UpdateYprMode() {
+int AdisRcvCsv::UpdateYprMode()
+{
   if (ReadSerial() <= 0) {
     printf("Can not read data\n");
     return IMU_ERR_CANT_RCV_DATA;
@@ -352,26 +365,30 @@ int AdisRcvCsv::UpdateYprMode() {
   return IMU_OK;
 }
 
-int AdisRcvCsv::MakeCsum(const std::vector<int>& array) {
+int AdisRcvCsv::MakeCsum(const std::vector<int>& array)
+{
   int sum = 0;
   for (size_t i = 0; i < array.size(); i++) {
-    sum += (array[i]>>24) & 0xff;
-    sum += (array[i]>>16) & 0xff;
-    sum += (array[i]>>8)  & 0xff;
-    sum += (array[i])     & 0xff;
+    sum += (array[i] >> 24) & 0xff;
+    sum += (array[i] >> 16) & 0xff;
+    sum += (array[i] >> 8) & 0xff;
+    sum += (array[i]) & 0xff;
   }
-  return (sum & 0xff); 
+  return (sum & 0xff);
 }
 
-int AdisRcvCsv::CalNextPointer(const int& src) {
-  return ((src+1) % RING_BUF_SIZE);
+int AdisRcvCsv::CalNextPointer(const int& src)
+{
+  return ((src + 1) % RING_BUF_SIZE);
 }
 
-int AdisRcvCsv::CalPrePointer(const int& src) {
-  return (src+RING_BUF_SIZE-1) % RING_BUF_SIZE;
+int AdisRcvCsv::CalPrePointer(const int& src)
+{
+  return (src + RING_BUF_SIZE - 1) % RING_BUF_SIZE;
 }
 
-std::vector<std::string> AdisRcvCsv::Split(const std::string& str, const char& delm) {
+std::vector<std::string> AdisRcvCsv::Split(const std::string& str, const char& delm)
+{
   std::vector<std::string> ret;
   std::stringstream stream(str);
   std::string tmp;
@@ -382,18 +399,20 @@ std::vector<std::string> AdisRcvCsv::Split(const std::string& str, const char& d
   return ret;
 }
 
-bool AdisRcvCsv::SetSensi(const std::string& sensi_str) {
+bool AdisRcvCsv::SetSensi(const std::string& sensi_str)
+{
   auto splited = Split(sensi_str, ',');
   if (splited.size() != 2) {
     return false;
   }
   gyro_sensi_ = std::stod(splited[0]);
   acc_sensi_ = std::stod(splited[1]);
-//  printf("%f, %f\n", gyro_sensi_, acc_sensi_);
-  return true; 
+  //  printf("%f, %f\n", gyro_sensi_, acc_sensi_);
+  return true;
 }
 
-void AdisRcvCsv::SetMode(const Mode& m) {
+void AdisRcvCsv::SetMode(const Mode& m)
+{
   md_ = m;
 
   if (md_ == Mode::ATTIUDE) {
@@ -403,19 +422,23 @@ void AdisRcvCsv::SetMode(const Mode& m) {
   }
 }
 
-AdisRcvCsv::Mode AdisRcvCsv::GetMode() {
+AdisRcvCsv::Mode AdisRcvCsv::GetMode()
+{
   return md_;
 }
 
-void AdisRcvCsv::SetState(const State& s) {
+void AdisRcvCsv::SetState(const State& s)
+{
   st_ = s;
 }
 
-AdisRcvCsv::State AdisRcvCsv::GetState() {
+AdisRcvCsv::State AdisRcvCsv::GetState()
+{
   return st_;
 }
 
-bool AdisRcvCsv::Prepare() {
+bool AdisRcvCsv::Prepare()
+{
   if (!CheckStatus()) return false;
 
   PrintFirmVersion();
@@ -435,7 +458,7 @@ bool AdisRcvCsv::Prepare() {
     }
   }
 
-  auto ret_str = SendAndRetCmd("start", /* args */"", /* is_print */false);
+  auto ret_str = SendAndRetCmd("start", /* args */ "", /* is_print */ false);
   if (ret_str != "start") {
     PRINT_ERR("Send start cmd. But imu was not started.\n");
     return false;
@@ -450,7 +473,8 @@ bool AdisRcvCsv::Prepare() {
 /**
  * @brief Open IMU device file
  */
-bool AdisRcvCsv::Open(const std::string& device) {
+bool AdisRcvCsv::Open(const std::string& device)
+{
   fd_ = open(device.c_str(), O_RDWR | O_NOCTTY);
   if (fd_ < 0) {
     perror("openPort");
@@ -477,11 +501,13 @@ bool AdisRcvCsv::Open(const std::string& device) {
 /**
  * @brief Check if the device is opened
  */
-bool AdisRcvCsv::IsOpened() {
+bool AdisRcvCsv::IsOpened()
+{
   return (fd_ >= 0);
 }
 
-bool AdisRcvCsv::SetFormat() {
+bool AdisRcvCsv::SetFormat()
+{
   std::string cmd = "SET_FORMAT";
   std::string args = "";
   if (GetMode() == AdisRcvCsv::Mode::ATTIUDE) {
@@ -490,7 +516,7 @@ bool AdisRcvCsv::SetFormat() {
     args += ",3";
   }
   auto ret_str = SendAndRetCmd(cmd, args);
-    
+
   if (ret_str != format_str_) {
     PRINT_ERR("SET_FORMAT is failed.\n");
     return false;
@@ -498,8 +524,9 @@ bool AdisRcvCsv::SetFormat() {
   return true;
 }
 
-bool AdisRcvCsv::CheckFormat() {
-  auto ret_str = SendAndRetCmd("GET_FORMAT"); 
+bool AdisRcvCsv::CheckFormat()
+{
+  auto ret_str = SendAndRetCmd("GET_FORMAT");
 
   if (ret_str != format_str_) {
     PRINT_ERR("Ivalid format.\n");
@@ -508,37 +535,59 @@ bool AdisRcvCsv::CheckFormat() {
   return true;
 }
 
-void AdisRcvCsv::GetProductId() {
+void AdisRcvCsv::GetProductId()
+{
   prod_id_ = SendAndRetCmd("GET_PROD_ID");
+  CheckProductId(prod_id_);
+}
 
-  if (prod_id_ == "ADIS16470") {
+/**
+ * @brief プロダクトIDがリリース品かどうかをチェック
+ *
+ * リリース品以外の場合は警告を出力
+ * @param[in] id プロダクトID
+ * @return none
+ */
+void AdisRcvCsv::CheckProductId(const std::string& id)
+{
+  if (id == "ADIS16470") {
     pd_ = Product::ADIS16470;
-  } else if (prod_id_ == "ADIS16500") {
+  } else if (id == "ADIS16500") {
     pd_ = Product::ADIS16500;
-  } else if (prod_id_ == "ADIS16505-2") {
+  } else if (id == "ADIS16505-2") {
     pd_ = Product::ADIS16505_2;
+  } else if (id == "ADIS16475-2") {
+    pd_ = Product::ADIS16475_2;
+  } else if (id == "ADIS16477-2") {
+    pd_ = Product::ADIS16477_2;
+  } else if (id == "ADIS16495-2") {
+    pd_ = Product::ADIS16495_2;
   } else {
-    PRINT_ERR("Unknown product id\n");
+    pd_ = Product::UNKNOWN;
+    PRINT_WARN("Unknown product id\n");
   }
 }
 
-std::string AdisRcvCsv::GetProductIdStr() {
+std::string AdisRcvCsv::GetProductIdStr()
+{
   return prod_id_;
 }
 
-void AdisRcvCsv::PrintFirmVersion() {
-  auto ret_str = SendAndRetCmd("GET_VERSION"); 
+void AdisRcvCsv::PrintFirmVersion()
+{
+  auto ret_str = SendAndRetCmd("GET_VERSION");
 }
 
-bool AdisRcvCsv::CheckStatus() {
-  auto ret_str = SendAndRetCmd("GET_STATUS"); 
+bool AdisRcvCsv::CheckStatus()
+{
+  auto ret_str = SendAndRetCmd("GET_STATUS");
   if (ret_str == "") {
     PRINT_WARN("The command did not come back.\n");
     return false;
 
   } else if (ret_str != "Ready") {
     PRINT_WARN("Imu state is not Ready. Send stop command.\n");
-    ret_str = SendAndRetCmd("stop", ""); 
+    ret_str = SendAndRetCmd("stop", "");
     if (ret_str != "stop") {
       PRINT_ERR("Transmission of stop command failed.");
       return false;
@@ -547,9 +596,10 @@ bool AdisRcvCsv::CheckStatus() {
   return true;
 }
 
-bool AdisRcvCsv::CheckSensitivity() {
+bool AdisRcvCsv::CheckSensitivity()
+{
   std::string ret_str = "";
-  ret_str = SendAndRetCmd("GET_SENSI"); 
+  ret_str = SendAndRetCmd("GET_SENSI");
   if (ret_str == "") {
     PRINT_ERR("Could not get sensitivities!\n");
     return false;
@@ -557,28 +607,31 @@ bool AdisRcvCsv::CheckSensitivity() {
   } else {
     if (!SetSensi(ret_str)) {
       PRINT_ERR("Insufficient number of sensitivities.\n");
-    return false;
+      return false;
     }
   }
   return true;
 }
 
-void AdisRcvCsv::Stop() {
+void AdisRcvCsv::Stop()
+{
   SetState(State::READY);
-  SendCmd("stop"); 
+  SendCmd("stop");
 }
 
-void AdisRcvCsv::GetYPR(double ret[]) {
+void AdisRcvCsv::GetYPR(double ret[])
+{
   ret[0] = ypr_[0];
   ret[1] = ypr_[1];
   ret[2] = ypr_[2];
 }
 
-void AdisRcvCsv::GetAcc(double ret[]) {
+void AdisRcvCsv::GetAcc(double ret[])
+{
   ret[0] = accl_[0];
   ret[1] = accl_[1];
   ret[2] = accl_[2];
-  
+
   // convert unit gm/s^2 to m/s^2
   if (pd_ == Product::ADIS16500 || pd_ == Product::ADIS16505_2) {
     ret[0] /= GRAVITY;
@@ -587,9 +640,9 @@ void AdisRcvCsv::GetAcc(double ret[]) {
   }
 }
 
-void AdisRcvCsv::GetGyro(double ret[]) {
+void AdisRcvCsv::GetGyro(double ret[])
+{
   ret[0] = gyro_[0];
   ret[1] = gyro_[1];
   ret[2] = gyro_[2];
 }
-
