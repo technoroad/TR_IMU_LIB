@@ -10,6 +10,9 @@ endif()
 add_library(adis_rcv_csv STATIC
   src/adis_rcv_csv.cpp)
 
+add_library(adis_rcv_bin STATIC
+  src/adis_rcv_bin.cpp)
+
 if (RUN_TEST)
   include(FetchContent)
   FetchContent_Declare(
