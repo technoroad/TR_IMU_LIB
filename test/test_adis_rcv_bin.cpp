@@ -1,13 +1,20 @@
-// Layer 1: pure-logic unit tests for AdisRcvBin (no hardware required).
+// Tests for AdisRcvBin.
+// - Layer 1: pure-logic unit tests (no hardware required). Always runs.
+// - Layer 2: integration tests against a real IMU. Gated by env var
+//   IMU_DEVICE (e.g. IMU_DEVICE=/dev/ttyACM0). Skipped otherwise.
 // See doc/test_plan_gen2.md for the overall plan.
 
 #include <adis_rcv_bin.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <climits>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Fixture is the friend; TEST_F-generated classes derive from it and reach
@@ -545,4 +552,243 @@ TEST_F(AdisRcvBinTest, GetProductIdStr_UnknownModelNoSuffix)
   Settings().product_id = 16470;
   Settings().model = 0xFF;
   EXPECT_EQ(imu_.GetProductIdStr(), "ADIS16470");
+}
+
+// ============================================================
+// Layer 2: hardware integration tests
+//
+// Gated by the IMU_DEVICE environment variable. Tests named Hw_AtRest_*
+// assume the device is sitting still; filter them out (--gtest_filter)
+// when the IMU is being handled.
+// ============================================================
+
+class AdisRcvBinHwTest : public ::testing::Test
+{
+ protected:
+  AdisRcvBin imu_;
+  std::string device_;
+
+  void SetUp() override
+  {
+    const char* env = std::getenv("IMU_DEVICE");
+    if (env == nullptr || env[0] == '\0') {
+      GTEST_SKIP() << "IMU_DEVICE not set; skipping hardware test.";
+    }
+    device_ = env;
+  }
+
+  void TearDown() override
+  {
+    if (imu_.GetState() != AdisRcvBin::State::INITIAL) {
+      imu_.StopTelemetry();
+      imu_.Close();
+    }
+  }
+
+  // Open the device, stop any in-flight telemetry, and read settings.
+  // Returns false (with a gtest failure) if any step fails.
+  bool OpenAndPrepare()
+  {
+    if (!imu_.Open(device_)) {
+      ADD_FAILURE() << "Open(" << device_
+                    << ") failed. Check cable and dialout group membership.";
+      return false;
+    }
+    imu_.StopTelemetry();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (!imu_.ReadSettings()) {
+      ADD_FAILURE() << "ReadSettings() failed; device may not be a TR-IMU-Platform2.";
+      return false;
+    }
+    return true;
+  }
+
+  // Drive UpdateTelemetry() in a loop for the given duration and count
+  // successful packets and hard errors. kImuBinErrCantRcvData (no data yet)
+  // is treated as benign — it just means we polled faster than the device.
+  void DrainTelemetry(std::chrono::milliseconds duration, int* packets, int* errors)
+  {
+    *packets = 0;
+    *errors = 0;
+    const auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < duration) {
+      const int r = imu_.UpdateTelemetry();
+      if (r == kImuBinOk) {
+        (*packets)++;
+      } else if (r != kImuBinErrCantRcvData) {
+        (*errors)++;
+      }
+    }
+  }
+};
+
+TEST_F(AdisRcvBinHwTest, Hw_OpenClose)
+{
+  EXPECT_TRUE(imu_.Open(device_));
+  EXPECT_EQ(imu_.GetState(), AdisRcvBin::State::READY);
+  imu_.Close();
+  EXPECT_EQ(imu_.GetState(), AdisRcvBin::State::INITIAL);
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_OpenInvalidDevice)
+{
+  AdisRcvBin local;
+  EXPECT_FALSE(local.Open("/dev/adis-bin-does-not-exist"));
+  EXPECT_EQ(local.GetState(), AdisRcvBin::State::INITIAL);
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_ReadSettings)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+  const auto& s = imu_.GetSettings();
+  EXPECT_NE(s.product_id, 0);
+  EXPECT_GT(s.accl_sensitivity, 0u);
+  EXPECT_GT(s.gyro_sensitivity, 0u);
+  EXPECT_GT(s.sample_rate, 0);
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_NopCommand)
+{
+  ASSERT_TRUE(imu_.Open(device_));
+  uint8_t data = 0;
+  EXPECT_TRUE(imu_.SendCommand(0x30, &data, 1));
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_StartStopTelemetry)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+
+  ASSERT_TRUE(imu_.StartTelemetry());
+  EXPECT_EQ(imu_.GetState(), AdisRcvBin::State::RUNNING);
+
+  // Verify telemetry is actually arriving.
+  int packets = 0;
+  int errors = 0;
+  DrainTelemetry(std::chrono::milliseconds(500), &packets, &errors);
+  EXPECT_GT(packets, 0) << "No packets received after StartTelemetry";
+
+  ASSERT_TRUE(imu_.StopTelemetry());
+  EXPECT_EQ(imu_.GetState(), AdisRcvBin::State::READY);
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_TelemetryFlow)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+  ASSERT_TRUE(imu_.StartTelemetry());
+
+  int packets = 0;
+  int errors = 0;
+  DrainTelemetry(std::chrono::seconds(1), &packets, &errors);
+
+  // At the 100 Hz default sample rate we expect ~100; allow generous margin.
+  EXPECT_GE(packets, 50) << "Too few packets in 1 second: " << packets;
+  // Hard errors (checksum, invalid data) should be rare.
+  EXPECT_LE(errors, packets / 100 + 1)
+      << "Too many hard errors: " << errors << " of " << packets << " packets";
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_QuaternionNorm)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+  ASSERT_TRUE(imu_.StartTelemetry());
+
+  // Wait for at least one packet.
+  bool got = false;
+  for (int i = 0; i < 200 && !got; i++) {
+    if (imu_.UpdateTelemetry() == kImuBinOk) got = true;
+    else std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  ASSERT_TRUE(got) << "No telemetry packet within 1 second";
+
+  double q[4];
+  imu_.GetQuat(q);
+  const double norm = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+  EXPECT_NEAR(norm, 1.0, 0.05) << "Quaternion norm out of range: " << norm;
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_AtRest_GravityMagnitude)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+  ASSERT_TRUE(imu_.StartTelemetry());
+
+  // Average over ~30 packets to smooth out noise.
+  double sx = 0, sy = 0, sz = 0;
+  int n = 0;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+  while (n < 30 && std::chrono::steady_clock::now() < deadline) {
+    if (imu_.UpdateTelemetry() == kImuBinOk) {
+      double a[3];
+      imu_.GetAccSI(a);
+      sx += a[0]; sy += a[1]; sz += a[2];
+      n++;
+    }
+  }
+  ASSERT_GE(n, 10) << "Too few packets to compute average";
+
+  const double ax = sx / n, ay = sy / n, az = sz / n;
+  const double mag = std::sqrt(ax * ax + ay * ay + az * az);
+  EXPECT_NEAR(mag, kGravity, 0.5) << "Gravity magnitude: " << mag << " m/s^2";
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_AtRest_GyroSmall)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+  ASSERT_TRUE(imu_.StartTelemetry());
+
+  double sx = 0, sy = 0, sz = 0;
+  int n = 0;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+  while (n < 30 && std::chrono::steady_clock::now() < deadline) {
+    if (imu_.UpdateTelemetry() == kImuBinOk) {
+      double g[3];
+      imu_.GetGyroSI(g);
+      sx += g[0]; sy += g[1]; sz += g[2];
+      n++;
+    }
+  }
+  ASSERT_GE(n, 10) << "Too few packets to compute average";
+
+  const double gx = sx / n, gy = sy / n, gz = sz / n;
+  const double mag = std::sqrt(gx * gx + gy * gy + gz * gz);
+  EXPECT_LT(mag, 0.05) << "At-rest gyro magnitude: " << mag << " rad/s";
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_ResetAttitude)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+  EXPECT_TRUE(imu_.ResetAttitude());
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_LongRunStability)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+  ASSERT_TRUE(imu_.StartTelemetry());
+
+  int packets = 0;
+  int errors = 0;
+  DrainTelemetry(std::chrono::seconds(10), &packets, &errors);
+
+  EXPECT_GE(packets, 500) << "Long run packet count too low: " << packets;
+  EXPECT_LE(errors, packets / 100 + 1)
+      << "Long run errors: " << errors << " of " << packets;
+}
+
+TEST_F(AdisRcvBinHwTest, Hw_SettingsCommandRoundtrip)
+{
+  // Change filter_select via 0x75 (without saving to flash via 0x71),
+  // then ReadSettings (0x70) and verify the change is reflected.
+  ASSERT_TRUE(OpenAndPrepare());
+  const uint8_t original = imu_.GetSettings().filter_select;
+  const uint8_t target = static_cast<uint8_t>(original == 2 ? 3 : 2);
+
+  uint8_t data = target;
+  ASSERT_TRUE(imu_.SendCommand(0x75, &data, 1));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  ASSERT_TRUE(imu_.ReadSettings());
+  EXPECT_EQ(imu_.GetSettings().filter_select, target);
+
+  // Best-effort restore (no flash save, so a reboot would revert anyway).
+  data = original;
+  imu_.SendCommand(0x75, &data, 1);
 }
