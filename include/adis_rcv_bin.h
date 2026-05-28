@@ -42,12 +42,21 @@ constexpr int kBinPacketSize = 70;
 constexpr double kGravity = 9.80665;
 constexpr double kDeg2Rad = 0.01745329251;
 
+// mpu_error bit masks (spec 5.4.1). bit4 is critical: when set, the IMU
+// board cannot operate normally and the upper PC must stop the robot drive
+// system and report the error to the developer.
+constexpr uint8_t kMpuErrValueOutOfRange = 1 << 0;
+constexpr uint8_t kMpuErrUnknownCommand  = 1 << 1;
+constexpr uint8_t kMpuErrFlashWrite      = 1 << 2;
+constexpr uint8_t kMpuErrWdtReboot       = 1 << 3;
+constexpr uint8_t kMpuErrImuNotFound     = 1 << 4;
+
 class AdisRcvBin {
  public:
   enum class State { INITIAL, READY, RUNNING };
 
   struct TelemetryData {
-    uint8_t  mpu_warning;
+    uint8_t  mpu_error;
     uint32_t send_counter;
     double   quat[4];       // W, X, Y, Z (DATA / 32767.0)
     int32_t  acc_raw[3];    // X, Y, Z
@@ -58,11 +67,12 @@ class AdisRcvBin {
     uint16_t computation_time_us;
     uint16_t spi_transaction_time_us;
     uint8_t  in0_port;
+    uint64_t timestamp;     // MCU internal time [us] since boot (logging use only)
     uint8_t  response_id;
   };
 
   struct SettingsData {
-    uint8_t  mpu_warning;
+    uint8_t  mpu_error;
     uint32_t send_counter;
     uint32_t build_date;
     uint8_t  peripheral_enable;
@@ -107,6 +117,7 @@ class AdisRcvBin {
   void GetGyroSI(double ret[3]) const;
   void GetQuat(double ret[4]) const;
   double GetTemperature() const;
+  uint64_t GetTimestamp() const { return telemetry_.timestamp; }
 
   std::string GetProductIdStr() const;
 

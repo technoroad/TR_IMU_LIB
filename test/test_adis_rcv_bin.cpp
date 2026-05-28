@@ -306,12 +306,15 @@ TEST_F(AdisRcvBinTest, ParseTelemetryFieldByField)
   d[43] = 250; d[44] = 0;
   d[45] = 0xE8; d[46] = 0x03;                            // 1000
   d[47] = 1;
+  // timestamp = 0x0123456789ABCDEF (uint64 LE)
+  d[48] = 0xEF; d[49] = 0xCD; d[50] = 0xAB; d[51] = 0x89;
+  d[52] = 0x67; d[53] = 0x45; d[54] = 0x23; d[55] = 0x01;
 
   ASSERT_TRUE(ParseTelemetry(d, 0x31));
 
   const auto& t = Telemetry();
   EXPECT_EQ(t.response_id, 0x31);
-  EXPECT_EQ(t.mpu_warning, 0x05);
+  EXPECT_EQ(t.mpu_error, 0x05);
   EXPECT_EQ(t.send_counter, 0x12345678u);
   EXPECT_NEAR(t.quat[0], 16384.0 / 32767.0, 1e-9);
   EXPECT_NEAR(t.quat[1], 0.0, 1e-9);
@@ -329,6 +332,25 @@ TEST_F(AdisRcvBinTest, ParseTelemetryFieldByField)
   EXPECT_EQ(t.computation_time_us, 250u);
   EXPECT_EQ(t.spi_transaction_time_us, 1000u);
   EXPECT_EQ(t.in0_port, 1);
+  EXPECT_EQ(t.timestamp, 0x0123456789ABCDEFULL);
+}
+
+// GetTimestamp() アクセサがそのまま telemetry_.timestamp を返すこと
+TEST_F(AdisRcvBinTest, GetTimestamp_Passthrough)
+{
+  Telemetry().timestamp = 0xDEADBEEFCAFE1234ULL;
+  EXPECT_EQ(imu_.GetTimestamp(), 0xDEADBEEFCAFE1234ULL);
+}
+
+// mpu_error の bit 定義が仕様書 (5.4.1) と一致していること
+TEST_F(AdisRcvBinTest, MpuErrorBitConstants)
+{
+  EXPECT_EQ(kMpuErrValueOutOfRange, 0x01);
+  EXPECT_EQ(kMpuErrUnknownCommand,  0x02);
+  EXPECT_EQ(kMpuErrFlashWrite,      0x04);
+  EXPECT_EQ(kMpuErrWdtReboot,       0x08);
+  // bit4: 駆動系停止 + 開発者報告が必要な重大エラー (仕様書 5.4.1)
+  EXPECT_EQ(kMpuErrImuNotFound,     0x10);
 }
 
 // ============================================================
@@ -363,7 +385,7 @@ TEST_F(AdisRcvBinTest, ParseSettingsFieldByField)
   ASSERT_TRUE(ParseSettings(d));
 
   const auto& s = Settings();
-  EXPECT_EQ(s.mpu_warning, 0x42);
+  EXPECT_EQ(s.mpu_error, 0x42);
   EXPECT_EQ(s.send_counter, 1u);
   EXPECT_EQ(s.build_date, 20260401u);
   EXPECT_EQ(s.peripheral_enable, 0x07);
@@ -400,7 +422,7 @@ TEST_F(AdisRcvBinTest, FindPacketHeaderResync)
   EXPECT_TRUE(FindAndParse());
   EXPECT_EQ(RingDataCount(), 0);
   EXPECT_EQ(Telemetry().response_id, 0x31);
-  EXPECT_EQ(Telemetry().mpu_warning, 0xA5);
+  EXPECT_EQ(Telemetry().mpu_error, 0xA5);
 }
 
 // length フィールドが 64 以外のヘッダはスキップして次のヘッダ候補を探すこと
@@ -418,7 +440,7 @@ TEST_F(AdisRcvBinTest, FindPacketLengthFieldError)
 
   EXPECT_TRUE(FindAndParse());
   EXPECT_EQ(Telemetry().response_id, 0x32);
-  EXPECT_EQ(Telemetry().mpu_warning, 0xBB);
+  EXPECT_EQ(Telemetry().mpu_error, 0xBB);
 }
 
 // チェックサムエラーのパケットはスキップして次の有効なパケットを採用すること
@@ -435,7 +457,7 @@ TEST_F(AdisRcvBinTest, FindPacketChecksumError)
 
   EXPECT_TRUE(FindAndParse());
   EXPECT_EQ(Telemetry().response_id, 0x33);
-  EXPECT_EQ(Telemetry().mpu_warning, 0xCC);
+  EXPECT_EQ(Telemetry().mpu_error, 0xCC);
 }
 
 // リングバッファの折返し境界をまたぐパケットも正しく抽出できること
@@ -450,7 +472,7 @@ TEST_F(AdisRcvBinTest, FindPacketWraparound)
   Inject(pkt.data(), pkt.size());
 
   EXPECT_TRUE(FindAndParse());
-  EXPECT_EQ(Telemetry().mpu_warning, 0xDD);
+  EXPECT_EQ(Telemetry().mpu_error, 0xDD);
 }
 
 // 70 バイト未満しか溜まっていない場合は false を返し、パース処理を始めない
@@ -472,7 +494,7 @@ TEST_F(AdisRcvBinTest, FindPacketRoutesSettingsByResponseId)
   Inject(pkt.data(), pkt.size());
 
   EXPECT_TRUE(FindAndParse());
-  EXPECT_EQ(Settings().mpu_warning, 0x99);
+  EXPECT_EQ(Settings().mpu_error, 0x99);
   EXPECT_EQ(Settings().product_id, 16505u);
 }
 

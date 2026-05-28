@@ -315,7 +315,7 @@ bool AdisRcvBin::FindAndParsePacket()
 bool AdisRcvBin::ParseTelemetryPayload(const uint8_t* d, uint8_t response_id)
 {
   telemetry_.response_id = response_id;
-  telemetry_.mpu_warning = ReadLE<uint8_t>(&d[0]);
+  telemetry_.mpu_error = ReadLE<uint8_t>(&d[0]);
   telemetry_.send_counter = ReadLE<uint32_t>(&d[1]);
 
   // Quaternion: int16 -> double (DATA / 32767.0)
@@ -341,13 +341,14 @@ bool AdisRcvBin::ParseTelemetryPayload(const uint8_t* d, uint8_t response_id)
   telemetry_.computation_time_us = ReadLE<uint16_t>(&d[43]);
   telemetry_.spi_transaction_time_us = ReadLE<uint16_t>(&d[45]);
   telemetry_.in0_port = ReadLE<uint8_t>(&d[47]);
+  telemetry_.timestamp = ReadLE<uint64_t>(&d[48]);
 
   return true;
 }
 
 bool AdisRcvBin::ParseSettingsPayload(const uint8_t* d)
 {
-  settings_.mpu_warning = ReadLE<uint8_t>(&d[0]);
+  settings_.mpu_error = ReadLE<uint8_t>(&d[0]);
   settings_.send_counter = ReadLE<uint32_t>(&d[1]);
   settings_.build_date = ReadLE<uint32_t>(&d[5]);
   settings_.peripheral_enable = ReadLE<uint8_t>(&d[9]);
@@ -458,8 +459,10 @@ int AdisRcvBin::UpdateTelemetry()
   bool found = false;
   while (ring_data_count_ >= kBinPacketSize) {
     if (FindAndParsePacket()) {
-      // Only count telemetry packets (not settings)
-      if (telemetry_.response_id <= 0x35) {
+      // Action responses are 0x20 (periodic) or 0x30..0x33 (action command echoes).
+      // Settings responses (0x70..0x77) are routed elsewhere and ignored here.
+      const uint8_t rid = telemetry_.response_id;
+      if (rid == 0x20 || (rid >= 0x30 && rid <= 0x33)) {
         found = true;
       }
     } else {
