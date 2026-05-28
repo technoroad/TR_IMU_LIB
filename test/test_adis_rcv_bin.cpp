@@ -90,24 +90,28 @@ class AdisRcvBinTest : public ::testing::Test
 // RFC1071 checksum
 // ============================================================
 
+// 空配列 (len=0) のチェックサム計算が 0xFFFF (NOT 0) を返すこと
 TEST_F(AdisRcvBinTest, Rfc1071CalcEmpty)
 {
   uint8_t d = 0x00;
   EXPECT_EQ(Calc(&d, 0), 0xFFFF);
 }
 
+// 単一バイト 0x00 のチェックサムは 0xFFFF
 TEST_F(AdisRcvBinTest, Rfc1071CalcSingleZero)
 {
   uint8_t d = 0x00;
   EXPECT_EQ(Calc(&d, 1), 0xFFFF);
 }
 
+// 単一バイト 0xFF のチェックサムは 0xFF00 (補数演算の最大値ケース)
 TEST_F(AdisRcvBinTest, Rfc1071CalcSingleFF)
 {
   uint8_t d = 0xFF;
   EXPECT_EQ(Calc(&d, 1), 0xFF00);
 }
 
+// cmd_id + length の典型的な 2 バイト入力に対する正しい計算
 TEST_F(AdisRcvBinTest, Rfc1071CalcCmdAndLength)
 {
   // Sum = 0x70 + 0x40 = 0xB0, ~0xB0 & 0xFFFF = 0xFF4F.
@@ -115,6 +119,7 @@ TEST_F(AdisRcvBinTest, Rfc1071CalcCmdAndLength)
   EXPECT_EQ(Calc(d, 2), 0xFF4F);
 }
 
+// 全 0xFF×4 バイトの計算 (sum が小さく折返し発生しないケース)
 TEST_F(AdisRcvBinTest, Rfc1071CalcAllFF4Bytes)
 {
   // Sum = 0x3FC, ~0x3FC & 0xFFFF = 0xFC03.
@@ -122,6 +127,7 @@ TEST_F(AdisRcvBinTest, Rfc1071CalcAllFF4Bytes)
   EXPECT_EQ(Calc(d, 4), 0xFC03);
 }
 
+// sum が 16bit を超えるとき、上位ビットを下位に畳む処理が正しく動くこと
 TEST_F(AdisRcvBinTest, Rfc1071CalcOverflowFold)
 {
   // 1000 * 0xFF = 0x3E418. Fold: 0x3 + 0xE418 = 0xE41B. ~ & 0xFFFF = 0x1BE4.
@@ -129,18 +135,21 @@ TEST_F(AdisRcvBinTest, Rfc1071CalcOverflowFold)
   EXPECT_EQ(Calc(d.data(), d.size()), 0x1BE4);
 }
 
+// 正しいチェックサムが付いたデータが verify を通ること
 TEST_F(AdisRcvBinTest, Rfc1071VerifyValid)
 {
   uint8_t d[] = {0x70, 0x40, 0x4F, 0xFF};
   EXPECT_TRUE(Verify(d, 4));
 }
 
+// データを 1 バイト改ざんすると verify が false を返すこと
 TEST_F(AdisRcvBinTest, Rfc1071VerifyTampered)
 {
   uint8_t d[] = {0x70, 0x41, 0x4F, 0xFF};
   EXPECT_FALSE(Verify(d, 4));
 }
 
+// 長さ 2 未満 (csum 自体が入らない) の入力は false を返すガード条件
 TEST_F(AdisRcvBinTest, Rfc1071VerifyTooShort)
 {
   uint8_t d[] = {0xFF};
@@ -148,6 +157,7 @@ TEST_F(AdisRcvBinTest, Rfc1071VerifyTooShort)
   EXPECT_FALSE(Verify(d, 0));
 }
 
+// Calc で算出した csum を付加したデータが Verify を通る (ラウンドトリップ整合)
 TEST_F(AdisRcvBinTest, Rfc1071BuildVerifyRoundtrip)
 {
   std::vector<uint8_t> body{0x31, 0x40};
@@ -162,54 +172,63 @@ TEST_F(AdisRcvBinTest, Rfc1071BuildVerifyRoundtrip)
 // ReadLE template specializations
 // ============================================================
 
+// uint8 は 1 バイトをそのまま返す
 TEST_F(AdisRcvBinTest, ReadLEUint8)
 {
   uint8_t d[] = {0x42};
   EXPECT_EQ(ReadLE<uint8_t>(d), 0x42);
 }
 
+// int16 最大値 (INT16_MAX = 0x7FFF) の境界
 TEST_F(AdisRcvBinTest, ReadLEInt16Positive)
 {
   uint8_t d[] = {0xFF, 0x7F};
   EXPECT_EQ(ReadLE<int16_t>(d), INT16_MAX);
 }
 
+// int16 最小値 (INT16_MIN = 0x8000) の境界、符号反転が正しく扱われる
 TEST_F(AdisRcvBinTest, ReadLEInt16Negative)
 {
   uint8_t d[] = {0x00, 0x80};
   EXPECT_EQ(ReadLE<int16_t>(d), INT16_MIN);
 }
 
+// int16 = -1 (全ビット 1) の解釈
 TEST_F(AdisRcvBinTest, ReadLEInt16MinusOne)
 {
   uint8_t d[] = {0xFF, 0xFF};
   EXPECT_EQ(ReadLE<int16_t>(d), -1);
 }
 
+// uint16 の little-endian バイト並び (下位バイトが先)
 TEST_F(AdisRcvBinTest, ReadLEUint16)
 {
   uint8_t d[] = {0x34, 0x12};
   EXPECT_EQ(ReadLE<uint16_t>(d), 0x1234u);
 }
 
+// int32 最大値 (INT32_MAX) の境界
 TEST_F(AdisRcvBinTest, ReadLEInt32Positive)
 {
   uint8_t d[] = {0xFF, 0xFF, 0xFF, 0x7F};
   EXPECT_EQ(ReadLE<int32_t>(d), INT32_MAX);
 }
 
+// int32 最小値 (INT32_MIN) の境界、符号反転が正しい
 TEST_F(AdisRcvBinTest, ReadLEInt32Negative)
 {
   uint8_t d[] = {0x00, 0x00, 0x00, 0x80};
   EXPECT_EQ(ReadLE<int32_t>(d), INT32_MIN);
 }
 
+// uint32 の little-endian 4 バイト読み出し
 TEST_F(AdisRcvBinTest, ReadLEUint32)
 {
   uint8_t d[] = {0x78, 0x56, 0x34, 0x12};
   EXPECT_EQ(ReadLE<uint32_t>(d), 0x12345678u);
 }
 
+// uint64 の little-endian 8 バイト読み出し
 TEST_F(AdisRcvBinTest, ReadLEUint64)
 {
   uint8_t d[] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF};
@@ -220,6 +239,7 @@ TEST_F(AdisRcvBinTest, ReadLEUint64)
 // BuildPacket
 // ============================================================
 
+// パケット全体のバイト配置検証: header(2) + cmd + len + data + csum(LE)
 TEST_F(AdisRcvBinTest, BuildPacketLayout)
 {
   uint8_t data[] = {0x12, 0x34, 0x56};
@@ -237,6 +257,7 @@ TEST_F(AdisRcvBinTest, BuildPacketLayout)
   EXPECT_EQ(pkt[8], 0xFE);
 }
 
+// data_len=0 の場合でもパケットが正しく構築される (csum はヘッダー除く先頭から計算)
 TEST_F(AdisRcvBinTest, BuildPacketEmptyData)
 {
   auto pkt = Build(0x30, {});
@@ -250,6 +271,7 @@ TEST_F(AdisRcvBinTest, BuildPacketEmptyData)
   EXPECT_EQ(pkt[5], 0xFF);
 }
 
+// BuildPacket が生成したパケットの csum が、その同じパケット自身の Verify を通る
 TEST_F(AdisRcvBinTest, BuildPacketSelfChecksum)
 {
   std::vector<uint8_t> data(64, 0xAB);
@@ -261,6 +283,8 @@ TEST_F(AdisRcvBinTest, BuildPacketSelfChecksum)
 // ParseTelemetryPayload
 // ============================================================
 
+// 既知の 64 バイトペイロード → TelemetryData 構造体の全フィールドが
+// 仕様通り (オフセット・型・スケーリング) にパースされること
 TEST_F(AdisRcvBinTest, ParseTelemetryFieldByField)
 {
   uint8_t d[64] = {0};
@@ -311,6 +335,8 @@ TEST_F(AdisRcvBinTest, ParseTelemetryFieldByField)
 // ParseSettingsPayload
 // ============================================================
 
+// 既知の 64 バイトペイロード → SettingsData 構造体の全フィールド
+// (product_id, sensitivity, filter 等) が正しくパースされること
 TEST_F(AdisRcvBinTest, ParseSettingsFieldByField)
 {
   uint8_t d[64] = {0};
@@ -359,6 +385,8 @@ TEST_F(AdisRcvBinTest, ParseSettingsFieldByField)
 // FindAndParsePacket
 // ============================================================
 
+// ノイズバイトの後に正規ヘッダが続く場合、ノイズをスキップして
+// 正規パケットに再同期できること
 TEST_F(AdisRcvBinTest, FindPacketHeaderResync)
 {
   uint8_t noise[5] = {0x01, 0x02, 0x03, 0x04, 0x05};
@@ -375,6 +403,7 @@ TEST_F(AdisRcvBinTest, FindPacketHeaderResync)
   EXPECT_EQ(Telemetry().mpu_warning, 0xA5);
 }
 
+// length フィールドが 64 以外のヘッダはスキップして次のヘッダ候補を探すこと
 TEST_F(AdisRcvBinTest, FindPacketLengthFieldError)
 {
   uint8_t bad[70];
@@ -392,6 +421,7 @@ TEST_F(AdisRcvBinTest, FindPacketLengthFieldError)
   EXPECT_EQ(Telemetry().mpu_warning, 0xBB);
 }
 
+// チェックサムエラーのパケットはスキップして次の有効なパケットを採用すること
 TEST_F(AdisRcvBinTest, FindPacketChecksumError)
 {
   uint8_t payload[64] = {0};
@@ -408,6 +438,7 @@ TEST_F(AdisRcvBinTest, FindPacketChecksumError)
   EXPECT_EQ(Telemetry().mpu_warning, 0xCC);
 }
 
+// リングバッファの折返し境界をまたぐパケットも正しく抽出できること
 TEST_F(AdisRcvBinTest, FindPacketWraparound)
 {
   RingWritePos() = kBinRingBufSize - 30;
@@ -422,6 +453,7 @@ TEST_F(AdisRcvBinTest, FindPacketWraparound)
   EXPECT_EQ(Telemetry().mpu_warning, 0xDD);
 }
 
+// 70 バイト未満しか溜まっていない場合は false を返し、パース処理を始めない
 TEST_F(AdisRcvBinTest, FindPacketNotEnoughData)
 {
   uint8_t pkt[50] = {0xAA, 0xAA};
@@ -429,6 +461,8 @@ TEST_F(AdisRcvBinTest, FindPacketNotEnoughData)
   EXPECT_FALSE(FindAndParse());
 }
 
+// response_id が 0x70-0x77 の範囲なら Settings として、それ以外は
+// Telemetry としてパース先を振り分けること
 TEST_F(AdisRcvBinTest, FindPacketRoutesSettingsByResponseId)
 {
   uint8_t payload[64] = {0};
@@ -446,6 +480,7 @@ TEST_F(AdisRcvBinTest, FindPacketRoutesSettingsByResponseId)
 // Unit conversion
 // ============================================================
 
+// accl_sensitivity = 0 のときはゼロ除算せず 0 を返す (ガード条件)
 TEST_F(AdisRcvBinTest, GetAccSI_ZeroSensitivityReturnsZero)
 {
   Settings().accl_sensitivity = 0;
@@ -459,6 +494,7 @@ TEST_F(AdisRcvBinTest, GetAccSI_ZeroSensitivityReturnsZero)
   EXPECT_EQ(r[2], 0.0);
 }
 
+// sensitivity と raw 値から正しい m/s² (重力加速度倍) が計算されること
 TEST_F(AdisRcvBinTest, GetAccSI_Scaling)
 {
   Settings().accl_sensitivity = 52428800ULL;
@@ -473,6 +509,7 @@ TEST_F(AdisRcvBinTest, GetAccSI_Scaling)
   EXPECT_NEAR(r[2], 0.0, 1e-9);
 }
 
+// gyro_sensitivity = 0 のときはゼロ除算せず 0 を返す (ガード条件)
 TEST_F(AdisRcvBinTest, GetGyroSI_ZeroSensitivityReturnsZero)
 {
   Settings().gyro_sensitivity = 0;
@@ -486,6 +523,7 @@ TEST_F(AdisRcvBinTest, GetGyroSI_ZeroSensitivityReturnsZero)
   EXPECT_EQ(r[2], 0.0);
 }
 
+// sensitivity と raw 値から正しい rad/s (deg→rad 換算含む) が計算されること
 TEST_F(AdisRcvBinTest, GetGyroSI_Scaling)
 {
   Settings().gyro_sensitivity = 10485760ULL;
@@ -500,6 +538,7 @@ TEST_F(AdisRcvBinTest, GetGyroSI_Scaling)
   EXPECT_NEAR(r[2], 0.0, 1e-9);
 }
 
+// 内部 telemetry_.quat[] の値がそのまま外部に返ること (パススルー)
 TEST_F(AdisRcvBinTest, GetQuat_Passthrough)
 {
   Telemetry().quat[0] = 0.5;
@@ -514,6 +553,7 @@ TEST_F(AdisRcvBinTest, GetQuat_Passthrough)
   EXPECT_DOUBLE_EQ(r[3], -0.5);
 }
 
+// 温度は raw 値を 10 で割って摂氏に変換 (0.1℃ 単位 → ℃)
 TEST_F(AdisRcvBinTest, GetTemperature_DivBy10)
 {
   Telemetry().temperature = 256;
@@ -526,6 +566,7 @@ TEST_F(AdisRcvBinTest, GetTemperature_DivBy10)
 // GetProductIdStr
 // ============================================================
 
+// model = 0x03 → "ADIS{pid}-1" サフィックス
 TEST_F(AdisRcvBinTest, GetProductIdStr_Model03Suffix1)
 {
   Settings().product_id = 16505;
@@ -533,6 +574,7 @@ TEST_F(AdisRcvBinTest, GetProductIdStr_Model03Suffix1)
   EXPECT_EQ(imu_.GetProductIdStr(), "ADIS16505-1");
 }
 
+// model = 0x07 → "ADIS{pid}-2" サフィックス
 TEST_F(AdisRcvBinTest, GetProductIdStr_Model07Suffix2)
 {
   Settings().product_id = 16505;
@@ -540,6 +582,7 @@ TEST_F(AdisRcvBinTest, GetProductIdStr_Model07Suffix2)
   EXPECT_EQ(imu_.GetProductIdStr(), "ADIS16505-2");
 }
 
+// model = 0x0F → "ADIS{pid}-3" サフィックス
 TEST_F(AdisRcvBinTest, GetProductIdStr_Model0FSuffix3)
 {
   Settings().product_id = 16505;
@@ -547,6 +590,7 @@ TEST_F(AdisRcvBinTest, GetProductIdStr_Model0FSuffix3)
   EXPECT_EQ(imu_.GetProductIdStr(), "ADIS16505-3");
 }
 
+// 未知の model 値の場合はサフィックスなし "ADIS{pid}" を返す
 TEST_F(AdisRcvBinTest, GetProductIdStr_UnknownModelNoSuffix)
 {
   Settings().product_id = 16470;
@@ -622,6 +666,7 @@ class AdisRcvBinHwTest : public ::testing::Test
   }
 };
 
+// シリアル port の Open/Close と state 遷移 (INITIAL → READY → INITIAL)
 TEST_F(AdisRcvBinHwTest, Hw_OpenClose)
 {
   EXPECT_TRUE(imu_.Open(device_));
@@ -630,6 +675,7 @@ TEST_F(AdisRcvBinHwTest, Hw_OpenClose)
   EXPECT_EQ(imu_.GetState(), AdisRcvBin::State::INITIAL);
 }
 
+// 存在しないデバイスパスで Open すると false、state は INITIAL のまま
 TEST_F(AdisRcvBinHwTest, Hw_OpenInvalidDevice)
 {
   AdisRcvBin local;
@@ -637,6 +683,7 @@ TEST_F(AdisRcvBinHwTest, Hw_OpenInvalidDevice)
   EXPECT_EQ(local.GetState(), AdisRcvBin::State::INITIAL);
 }
 
+// 0x70 (ReadSettings) で取得した product_id と sensitivity が妥当な値であること
 TEST_F(AdisRcvBinHwTest, Hw_ReadSettings)
 {
   ASSERT_TRUE(OpenAndPrepare());
@@ -647,6 +694,7 @@ TEST_F(AdisRcvBinHwTest, Hw_ReadSettings)
   EXPECT_GT(s.sample_rate, 0);
 }
 
+// 0x30 (NOP) コマンド送信成功 — 通信の死活確認
 TEST_F(AdisRcvBinHwTest, Hw_NopCommand)
 {
   ASSERT_TRUE(imu_.Open(device_));
@@ -654,6 +702,8 @@ TEST_F(AdisRcvBinHwTest, Hw_NopCommand)
   EXPECT_TRUE(imu_.SendCommand(0x30, &data, 1));
 }
 
+// 0x31 でテレメトリ開始 → state=RUNNING、データ到達確認、
+// 0x32 で停止 → state=READY
 TEST_F(AdisRcvBinHwTest, Hw_StartStopTelemetry)
 {
   ASSERT_TRUE(OpenAndPrepare());
@@ -671,6 +721,7 @@ TEST_F(AdisRcvBinHwTest, Hw_StartStopTelemetry)
   EXPECT_EQ(imu_.GetState(), AdisRcvBin::State::READY);
 }
 
+// 100Hz 想定で 1 秒間に 50 パケット以上、ハードエラー率 < 1% であること
 TEST_F(AdisRcvBinHwTest, Hw_TelemetryFlow)
 {
   ASSERT_TRUE(OpenAndPrepare());
@@ -687,6 +738,7 @@ TEST_F(AdisRcvBinHwTest, Hw_TelemetryFlow)
       << "Too many hard errors: " << errors << " of " << packets << " packets";
 }
 
+// 取得したクォータニオンのノルムが 1.0 ± 0.05 の範囲内 (正規化されている)
 TEST_F(AdisRcvBinHwTest, Hw_QuaternionNorm)
 {
   ASSERT_TRUE(OpenAndPrepare());
@@ -706,6 +758,7 @@ TEST_F(AdisRcvBinHwTest, Hw_QuaternionNorm)
   EXPECT_NEAR(norm, 1.0, 0.05) << "Quaternion norm out of range: " << norm;
 }
 
+// 静置時、加速度ベクトルの大きさが ≈ 9.8 ± 0.5 m/s² (重力のみ検出)
 TEST_F(AdisRcvBinHwTest, Hw_AtRest_GravityMagnitude)
 {
   ASSERT_TRUE(OpenAndPrepare());
@@ -730,6 +783,7 @@ TEST_F(AdisRcvBinHwTest, Hw_AtRest_GravityMagnitude)
   EXPECT_NEAR(mag, kGravity, 0.5) << "Gravity magnitude: " << mag << " m/s^2";
 }
 
+// 静置時、ジャイロベクトルの大きさが < 0.05 rad/s (回転していない)
 TEST_F(AdisRcvBinHwTest, Hw_AtRest_GyroSmall)
 {
   ASSERT_TRUE(OpenAndPrepare());
@@ -753,12 +807,14 @@ TEST_F(AdisRcvBinHwTest, Hw_AtRest_GyroSmall)
   EXPECT_LT(mag, 0.05) << "At-rest gyro magnitude: " << mag << " rad/s";
 }
 
+// 0x33 (姿勢リセット) コマンドが送信成功
 TEST_F(AdisRcvBinHwTest, Hw_ResetAttitude)
 {
   ASSERT_TRUE(OpenAndPrepare());
   EXPECT_TRUE(imu_.ResetAttitude());
 }
 
+// 10 秒間連続取得して、パケット数が十分でハードエラー率 < 1% であること
 TEST_F(AdisRcvBinHwTest, Hw_LongRunStability)
 {
   ASSERT_TRUE(OpenAndPrepare());
@@ -773,6 +829,8 @@ TEST_F(AdisRcvBinHwTest, Hw_LongRunStability)
       << "Long run errors: " << errors << " of " << packets;
 }
 
+// 0x75 (filter 設定) でフィルタ値を変更し、0x70 (ReadSettings) 再取得で
+// 変更が反映されていることを確認 (flash 保存はせず一時的)
 TEST_F(AdisRcvBinHwTest, Hw_SettingsCommandRoundtrip)
 {
   // Change filter_select via 0x75 (without saving to flash via 0x71),
