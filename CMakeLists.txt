@@ -32,5 +32,14 @@ if (RUN_TEST)
   )
   add_test(NAME test_adis_rcv_csv COMMAND test_adis_rcv_csv)
 
+  add_executable(test_adis_rcv_bin
+    test/test_adis_rcv_bin.cpp
+  )
+  target_link_libraries(test_adis_rcv_bin
+    GTest::gtest_main
+    adis_rcv_bin
+  )
+  add_test(NAME test_adis_rcv_bin COMMAND test_adis_rcv_bin)
+
   enable_testing()
 endif()

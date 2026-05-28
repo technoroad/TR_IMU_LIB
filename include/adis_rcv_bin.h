@@ -143,6 +143,11 @@ class AdisRcvBin {
   static T ReadLE(const uint8_t* p);
 
   bool WaitForResponse(uint8_t expected_id, int timeout_ms);
+
+#if defined(UTEST)
+ public:
+  friend class AdisRcvBinTest;
+#endif
 };
 
 #endif  // ADIS_RCV_BIN_H_
