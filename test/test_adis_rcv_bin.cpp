@@ -686,6 +686,82 @@ class AdisRcvBinHwTest : public ::testing::Test
       }
     }
   }
+
+  // Average the at-rest accelerometer magnitude (m/s^2) over up to 30 packets.
+  // Manages telemetry start/stop internally; the device must be open, READY
+  // and physically stationary. Returns -1.0 if too few packets arrived.
+  double MeasureAccMagnitude()
+  {
+    if (!imu_.StartTelemetry()) return -1.0;
+    double sx = 0, sy = 0, sz = 0;
+    int n = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (n < 30 && std::chrono::steady_clock::now() < deadline) {
+      if (imu_.UpdateTelemetry() == kImuBinOk) {
+        double a[3];
+        imu_.GetAccSI(a);
+        sx += a[0]; sy += a[1]; sz += a[2];
+        n++;
+      }
+    }
+    imu_.StopTelemetry();
+    if (n < 10) return -1.0;
+    const double ax = sx / n, ay = sy / n, az = sz / n;
+    return std::sqrt(ax * ax + ay * ay + az * az);
+  }
+
+  // Reboot the MCU (0xB0) and reopen the device once it re-enumerates on the
+  // USB bus, leaving settings_ holding a stable post-reboot read. Does NOT
+  // save first, so any unsaved settings changes revert. Returns false (with a
+  // gtest failure) if the device does not come back.
+  bool RebootReconnect()
+  {
+    // 0xB0 reboot: Length 1, Data 0x00. Fire-and-forget — the MCU resets
+    // immediately and returns no response; the serial link drops. The reboot
+    // takes ~3 s and periodic telemetry does NOT auto-resume.
+    uint8_t reboot = 0x00;
+    imu_.SendCommand(0xB0, &reboot, 1);
+    imu_.Close();
+
+    // Wait for USB re-enumeration, then reopen and confirm communication.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      if (!imu_.Open(device_)) continue;
+      imu_.StopTelemetry();
+      std::this_thread::sleep_for(std::chrono::milliseconds(150));
+      if (!imu_.ReadSettings()) { imu_.Close(); continue; }
+      // The first settings packet right after re-enumeration can be stale;
+      // settle, then re-read so settings_ holds a trustworthy value.
+      std::this_thread::sleep_for(std::chrono::seconds(2));
+      if (imu_.ReadSettings()) return true;
+      imu_.Close();
+    }
+    ADD_FAILURE() << "Device did not re-enumerate within 20s after reboot";
+    return false;
+  }
+
+  // Persist current settings (0x71) with the spec-defined permission keyword,
+  // then reboot + reconnect via RebootReconnect(). Required to make settings
+  // commands 0x73-0x77 survive a reboot (platform2 spec §6.2.2, §6.4, §7.2.1).
+  bool SaveRebootReconnect()
+  {
+    // 0x71 save: Length 2, Data = permission keyword {0x12, 0x34}. A wrong
+    // keyword sets mpu_error bit0 and the save is silently skipped.
+    const uint8_t save_key[2] = {0x12, 0x34};
+    if (!imu_.SendCommand(0x71, save_key, sizeof(save_key))) {
+      ADD_FAILURE() << "Save (0x71) command failed";
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    // Confirm the save was accepted (a bad key would set mpu_error bit0).
+    if (imu_.ReadSettings() &&
+        (imu_.GetSettings().mpu_error & kMpuErrValueOutOfRange)) {
+      ADD_FAILURE() << "Save (0x71) rejected: mpu_error bit0 set (bad key?)";
+      return false;
+    }
+    return RebootReconnect();
+  }
 };
 
 // シリアル port の Open/Close と state 遷移 (INITIAL → READY → INITIAL)
@@ -784,24 +860,8 @@ TEST_F(AdisRcvBinHwTest, Hw_QuaternionNorm)
 TEST_F(AdisRcvBinHwTest, Hw_AtRest_GravityMagnitude)
 {
   ASSERT_TRUE(OpenAndPrepare());
-  ASSERT_TRUE(imu_.StartTelemetry());
-
-  // Average over ~30 packets to smooth out noise.
-  double sx = 0, sy = 0, sz = 0;
-  int n = 0;
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-  while (n < 30 && std::chrono::steady_clock::now() < deadline) {
-    if (imu_.UpdateTelemetry() == kImuBinOk) {
-      double a[3];
-      imu_.GetAccSI(a);
-      sx += a[0]; sy += a[1]; sz += a[2];
-      n++;
-    }
-  }
-  ASSERT_GE(n, 10) << "Too few packets to compute average";
-
-  const double ax = sx / n, ay = sy / n, az = sz / n;
-  const double mag = std::sqrt(ax * ax + ay * ay + az * az);
+  const double mag = MeasureAccMagnitude();
+  ASSERT_GE(mag, 0.0) << "Too few packets to compute average";
   EXPECT_NEAR(mag, kGravity, 0.5) << "Gravity magnitude: " << mag << " m/s^2";
 }
 
@@ -871,4 +931,55 @@ TEST_F(AdisRcvBinHwTest, Hw_SettingsCommandRoundtrip)
   // Best-effort restore (no flash save, so a reboot would revert anyway).
   data = original;
   imu_.SendCommand(0x75, &data, 1);
+}
+
+// 0x76 (重力補正) の永続化仕様を実機で検証する。
+// 重力補正 grav_corr_en は姿勢推定の 3軸(gyroのみ)/6軸 切替で (仕様書 §6.4.12)、
+// 加速度の出力には現れない。よって判定は設定値のリードバックで行う。
+// 仕様: 0x76 で設定値は即 RAM に入るが、不揮発化には 0x71(save) が必要で、
+//       反映には再起動 (0xB0) が必要。save せずに再起動すると元へ戻る。
+// 流れ:
+//   1. 元の grav_corr_en を記録 (最後に必ず復元する)
+//   2. 0x76 で値を反転 (save しない) → RAM には即反映されることを確認
+//   3. save せずに reboot → 元の値へ戻る (未保存は不揮発化されない)
+//   4. 0x76 で反転 + 0x71 save + reboot → 反転値が維持される
+//   5. 元の値に戻して save + reboot
+// 注意: flash へ書き込み、デバイスを 3 回リブートする破壊的テスト。
+TEST_F(AdisRcvBinHwTest, Hw_GravityCorrectionPersistsOnlyWhenSaved)
+{
+  ASSERT_TRUE(OpenAndPrepare());
+
+  // Step 1: record the current setting so we can restore it at the end.
+  const uint8_t original = imu_.GetSettings().grav_corr_en;
+  const uint8_t target = static_cast<uint8_t>(original ? 0 : 1);
+
+  // Step 2: toggle WITHOUT saving — the change lands in RAM immediately.
+  uint8_t data = target;
+  ASSERT_TRUE(imu_.SendCommand(0x76, &data, 1));
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  ASSERT_TRUE(imu_.ReadSettings());
+  EXPECT_EQ(imu_.GetSettings().grav_corr_en, target)
+      << "0x76 not reflected in settings RAM";
+
+  // Step 3: reboot WITHOUT saving — the unsaved change must revert.
+  ASSERT_TRUE(RebootReconnect());
+  EXPECT_EQ(imu_.GetSettings().grav_corr_en, original)
+      << "Unsaved 0x76 change persisted across reboot (should have reverted)";
+
+  // Step 4: toggle, save (0x71), reboot — now the change must persist.
+  data = target;
+  ASSERT_TRUE(imu_.SendCommand(0x76, &data, 1));
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  ASSERT_TRUE(SaveRebootReconnect());
+  EXPECT_EQ(imu_.GetSettings().grav_corr_en, target)
+      << "Saved 0x76 change did not persist across reboot";
+
+  // Step 5: restore the original setting (save + reboot). Use EXPECT above so
+  // we always reach this restore even if an assertion failed.
+  data = original;
+  ASSERT_TRUE(imu_.SendCommand(0x76, &data, 1));
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  ASSERT_TRUE(SaveRebootReconnect());
+  EXPECT_EQ(imu_.GetSettings().grav_corr_en, original)
+      << "Failed to restore original gravity correction setting";
 }
