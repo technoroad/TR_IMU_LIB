@@ -103,6 +103,8 @@ class AdisRcvBin {
   bool StartTelemetry();
   bool StopTelemetry();
   bool ResetAttitude();
+  // Brings the board's command parser back to a frame boundary.
+  bool ResyncParser();
 
   // Data acquisition
   int UpdateTelemetry();

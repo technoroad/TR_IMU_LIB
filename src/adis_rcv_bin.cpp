@@ -134,7 +134,10 @@ bool AdisRcvBin::Open(const std::string& device)
 void AdisRcvBin::Close()
 {
   if (fd_ >= 0) {
-    tcsetattr(fd_, TCSANOW, &defaults_);
+    // Keep the raw termios. Restoring the pre-open settings (usually ECHO+ICANON)
+    // while the board is still streaming makes the tty echo the telemetry back
+    // to the board, whose command parser then waits for the rest of a bogus
+    // frame and ignores every command on the next start.
     close(fd_);
     fd_ = -1;
   }
@@ -376,6 +379,18 @@ bool AdisRcvBin::StartTelemetry()
   uint8_t data = 0x00;
   if (!SendCommand(0x31, &data, 1)) return false;
   state_ = State::RUNNING;
+  return true;
+}
+
+bool AdisRcvBin::ResyncParser()
+{
+  // Longer than any frame (header 2 + id 1 + length 1 + data 255 + checksum 2),
+  // so a frame the board is still waiting to complete is closed out. 0x00 can
+  // never start a frame, so the padding itself is ignored.
+  constexpr size_t kPadBytes = 300;
+  const std::vector<uint8_t> pad(kPadBytes, 0x00);
+  if (WriteBytes(pad.data(), pad.size()) != static_cast<int>(pad.size())) return false;
+  tcdrain(fd_);
   return true;
 }
 
